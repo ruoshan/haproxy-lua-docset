@@ -1,0 +1,2973 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>How Lua runs in HAProxy &mdash; haproxy-lua 1.0 documentation</title>
+    
+    <link rel="stylesheet" href="_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    './',
+        VERSION:     '1.0',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="top" title="haproxy-lua 1.0 documentation" href="#" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li><a href="#">haproxy-lua 1.0 documentation</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <div class="toctree-wrapper compound">
+<ul class="simple">
+</ul>
+</div>
+<div class="section" id="how-lua-runs-in-haproxy">
+<h1>How Lua runs in HAProxy<a class="headerlink" href="#how-lua-runs-in-haproxy" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="haproxy-lua-running-contexts">
+<h2>HAProxy Lua running contexts<a class="headerlink" href="#haproxy-lua-running-contexts" title="Permalink to this headline">¶</a></h2>
+<p>The Lua code executed in HAProxy can be processed in 2 main modes. The first one
+is the <strong>initialisation mode</strong>, and the second is the <strong>runtime mode</strong>.</p>
+<ul class="simple">
+<li>In the <strong>initialisation mode</strong>, we can perform DNS solves, but we cannot
+perform socket I/O. In this initialisation mode, HAProxy still blocked during
+the execution of the Lua program.</li>
+<li>In the <strong>runtime mode</strong>, we cannot perform DNS solves, but we can use sockets.
+The execution of the Lua code is multiplexed with the requests processing, so
+the Lua code seems to be run in blocking, but it is not the case.</li>
+</ul>
+<p>The Lua code is loaded in one or more files. These files contains main code and
+functions. Lua have 6 execution context.</p>
+<ol class="arabic">
+<li><p class="first">The Lua file <strong>body context</strong>. It is executed during the load of the Lua file
+in the HAProxy <cite>[global]</cite> section with the directive <cite>lua-load</cite>. It is
+executed in initialisation mode. This section is use for configuring Lua
+bindings in HAProxy.</p>
+</li>
+<li><p class="first">The Lua <strong>init context</strong>. It is a Lua function executed just after the
+HAProxy configuration parsing. The execution is in initialisation mode. In
+this context the HAProxy environment are already initialized. It is useful to
+check configuration, or initializing socket connections or tasks. These
+functions are declared in the body context with the Lua function
+<cite>core.register_init()</cite>. The prototype of the function is a simple function
+without return value and without parameters, like this: <cite>function fcn()</cite>.</p>
+</li>
+<li><p class="first">The Lua <strong>task context</strong>. It is a Lua function executed after the start
+of the HAProxy scheduler, and just after the declaration of the task with the
+Lua function <cite>core.register_task()</cite>. This context can be concurrent with the
+traffic processing. It is executed in runtime mode. The prototype of the
+function is a simple function without return value and without parameters,
+like this: <cite>function fcn()</cite>.</p>
+</li>
+<li><p class="first">The <strong>action context</strong>. It is a Lua function conditionally executed. These
+actions are registered by the Lua directives &#8220;<cite>core.register_action()</cite>&#8221;. The
+prototype of the Lua called function is a function with doesn&#8217;t returns
+anything and that take an object of class TXN as entry. <cite>function fcn(txn)</cite>.</p>
+</li>
+<li><p class="first">The <strong>sample-fetch context</strong>. This function takes a TXN object as entry
+argument and returns a string. These types of function cannot execute any
+blocking function. They are useful to aggregate some of original HAProxy
+sample-fetches and return the result. The prototype of the function is
+<cite>function string fcn(txn)</cite>. These functions can be registered with the Lua
+function <cite>core.register_fetches()</cite>. Each declared sample-fetch is prefixed by
+the string &#8220;lua.&#8221;.</p>
+<p><strong>NOTE</strong>: It is possible that this function cannot found the required data
+in the original HAProxy sample-fetches, in this case, it cannot return the
+result. This case is not yet supported</p>
+</li>
+<li><p class="first">The <strong>converter context</strong>. It is a Lua function that takes a string as input
+and returns another string as output. These types of function are stateless,
+it cannot access to any context. They don&#8217;t execute any blocking function.
+The call prototype is <cite>function string fcn(string)</cite>. This function can be
+registered with the Lua function <cite>core.register_converters()</cite>. Each declared
+converter is prefixed by the string &#8220;lua.&#8221;.</p>
+</li>
+</ol>
+</div>
+<div class="section" id="haproxy-lua-hello-world">
+<h2>HAProxy Lua Hello world<a class="headerlink" href="#haproxy-lua-hello-world" title="Permalink to this headline">¶</a></h2>
+<p>HAProxy configuration file (<cite>hello_world.conf</cite>):</p>
+<div class="highlight-python"><div class="highlight"><pre>global
+   lua-load hello_world.lua
+
+listen proxy
+   bind 127.0.0.1:10001
+   tcp-request inspect-delay 1s
+   tcp-request content use-service lua.hello_world
+</pre></div>
+</div>
+<p>HAProxy Lua file (<cite>hello_world.lua</cite>):</p>
+<div class="highlight-lua"><div class="highlight"><pre><span class="n">core</span><span class="p">.</span><span class="n">register_service</span><span class="p">(</span><span class="s2">&quot;</span><span class="s">hello_world&quot;</span><span class="p">,</span> <span class="s2">&quot;</span><span class="s">tcp&quot;</span><span class="p">,</span> <span class="k">function</span><span class="p">(</span><span class="n">applet</span><span class="p">)</span>
+   <span class="n">applet</span><span class="p">:</span><span class="n">send</span><span class="p">(</span><span class="s2">&quot;</span><span class="s">hello world</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">)</span>
+<span class="k">end</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>How to start HAProxy for testing this configuration:</p>
+<div class="highlight-python"><div class="highlight"><pre>./haproxy -f hello_world.conf
+</pre></div>
+</div>
+<p>On other terminal, you can test with telnet:</p>
+<div class="highlight-python"><div class="highlight"><pre>#:~ telnet 127.0.0.1 10001
+hello world
+</pre></div>
+</div>
+</div>
+</div>
+<div class="section" id="core-class">
+<h1>Core class<a class="headerlink" href="#core-class" title="Permalink to this headline">¶</a></h1>
+<dl class="class">
+<dt id="core">
+<em class="property">class </em><tt class="descname">core</tt><big>(</big><big>)</big><a class="headerlink" href="#core" title="Permalink to this definition">¶</a></dt>
+<dd><p>The &#8220;core&#8221; class contains all the HAProxy core functions. These function are
+useful for the controlling the execution flow, registering hooks, manipulating
+global maps or ACL, ...</p>
+<p>&#8220;core&#8221; class is basically provided with HAProxy. No <cite>require</cite> line is
+required to uses these function.</p>
+<p>The &#8220;core&#8221; class is static, it is not possible to create a new object of this
+type.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="core.emerg">
+<tt class="descclassname">core.</tt><tt class="descname">emerg</tt><a class="headerlink" href="#core.emerg" title="Permalink to this definition">¶</a></dt>
+<dd><table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">integer</td>
+</tr>
+</tbody>
+</table>
+<p>This attribute is an integer, it contains the value of the loglevel &#8220;emergency&#8221; (0).</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="core.alert">
+<tt class="descclassname">core.</tt><tt class="descname">alert</tt><a class="headerlink" href="#core.alert" title="Permalink to this definition">¶</a></dt>
+<dd><table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">integer</td>
+</tr>
+</tbody>
+</table>
+<p>This attribute is an integer, it contains the value of the loglevel &#8220;alert&#8221; (1).</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="core.crit">
+<tt class="descclassname">core.</tt><tt class="descname">crit</tt><a class="headerlink" href="#core.crit" title="Permalink to this definition">¶</a></dt>
+<dd><table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">integer</td>
+</tr>
+</tbody>
+</table>
+<p>This attribute is an integer, it contains the value of the loglevel &#8220;critical&#8221; (2).</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="core.err">
+<tt class="descclassname">core.</tt><tt class="descname">err</tt><a class="headerlink" href="#core.err" title="Permalink to this definition">¶</a></dt>
+<dd><table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">integer</td>
+</tr>
+</tbody>
+</table>
+<p>This attribute is an integer, it contains the value of the loglevel &#8220;error&#8221; (3).</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="core.warning">
+<tt class="descclassname">core.</tt><tt class="descname">warning</tt><a class="headerlink" href="#core.warning" title="Permalink to this definition">¶</a></dt>
+<dd><table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">integer</td>
+</tr>
+</tbody>
+</table>
+<p>This attribute is an integer, it contains the value of the loglevel &#8220;warning&#8221; (4).</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="core.notice">
+<tt class="descclassname">core.</tt><tt class="descname">notice</tt><a class="headerlink" href="#core.notice" title="Permalink to this definition">¶</a></dt>
+<dd><table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">integer</td>
+</tr>
+</tbody>
+</table>
+<p>This attribute is an integer, it contains the value of the loglevel &#8220;notice&#8221; (5).</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="core.info">
+<tt class="descclassname">core.</tt><tt class="descname">info</tt><a class="headerlink" href="#core.info" title="Permalink to this definition">¶</a></dt>
+<dd><table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">integer</td>
+</tr>
+</tbody>
+</table>
+<p>This attribute is an integer, it contains the value of the loglevel &#8220;info&#8221; (6).</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="core.debug">
+<tt class="descclassname">core.</tt><tt class="descname">debug</tt><a class="headerlink" href="#core.debug" title="Permalink to this definition">¶</a></dt>
+<dd><table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">integer</td>
+</tr>
+</tbody>
+</table>
+<p>This attribute is an integer, it contains the value of the loglevel &#8220;debug&#8221; (7).</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="core.log">
+<tt class="descclassname">core.</tt><tt class="descname">log</tt><big>(</big><em>loglevel</em>, <em>msg</em><big>)</big><a class="headerlink" href="#core.log" title="Permalink to this definition">¶</a></dt>
+<dd><p><strong>context</strong>: body, init, task, action, sample-fetch, converter</p>
+<p>This function sends a log. The log is sent, according with the HAProxy
+configuration file, on the default syslog server if it is configured and on
+the stderr if it is allowed.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>loglevel</strong> (<em>integer</em>) &#8211; Is the log level asociated with the message. It is a
+number between 0 and 7.</li>
+<li><strong>msg</strong> (<em>string</em>) &#8211; The log content.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">See:</th><td class="field-body"><p class="first">core.emerg, core.alert, core.crit, core.err, core.warning, core.notice,
+core.info, core.debug (log level definitions)</p>
+</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">See:</th><td class="field-body"><p class="first">code.Debug</p>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">See:</th><td class="field-body"><p class="first">core.Info</p>
+</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">See:</th><td class="field-body"><p class="first">core.Warning</p>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">See:</th><td class="field-body"><p class="first last">core.Alert</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="core.Debug">
+<tt class="descclassname">core.</tt><tt class="descname">Debug</tt><big>(</big><em>msg</em><big>)</big><a class="headerlink" href="#core.Debug" title="Permalink to this definition">¶</a></dt>
+<dd><p><strong>context</strong>: body, init, task, action, sample-fetch, converter</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>msg</strong> (<em>string</em>) &#8211; The log content.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">See:</th><td class="field-body"><p class="first last">log</p>
+</td>
+</tr>
+</tbody>
+</table>
+<p>Does the same job than:</p>
+</dd></dl>
+
+<div class="highlight-lua"><div class="highlight"><pre><span class="k">function</span> <span class="nf">Debug</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+  <span class="n">core</span><span class="p">.</span><span class="n">log</span><span class="p">(</span><span class="n">core</span><span class="p">.</span><span class="n">debug</span><span class="p">,</span> <span class="n">msg</span><span class="p">)</span>
+<span class="k">end</span>
+</pre></div>
+</div>
+<dl class="function">
+<dt id="core.Info">
+<tt class="descclassname">core.</tt><tt class="descname">Info</tt><big>(</big><em>msg</em><big>)</big><a class="headerlink" href="#core.Info" title="Permalink to this definition">¶</a></dt>
+<dd><p><strong>context</strong>: body, init, task, action, sample-fetch, converter</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>msg</strong> (<em>string</em>) &#8211; The log content.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">See:</th><td class="field-body"><p class="first last">log</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<div class="highlight-lua"><div class="highlight"><pre><span class="k">function</span> <span class="nf">Info</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+  <span class="n">core</span><span class="p">.</span><span class="n">log</span><span class="p">(</span><span class="n">core</span><span class="p">.</span><span class="n">info</span><span class="p">,</span> <span class="n">msg</span><span class="p">)</span>
+<span class="k">end</span>
+</pre></div>
+</div>
+<dl class="function">
+<dt id="core.Warning">
+<tt class="descclassname">core.</tt><tt class="descname">Warning</tt><big>(</big><em>msg</em><big>)</big><a class="headerlink" href="#core.Warning" title="Permalink to this definition">¶</a></dt>
+<dd><p><strong>context</strong>: body, init, task, action, sample-fetch, converter</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>msg</strong> (<em>string</em>) &#8211; The log content.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">See:</th><td class="field-body"><p class="first last">log</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<div class="highlight-lua"><div class="highlight"><pre><span class="k">function</span> <span class="nf">Warning</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+  <span class="n">core</span><span class="p">.</span><span class="n">log</span><span class="p">(</span><span class="n">core</span><span class="p">.</span><span class="n">warning</span><span class="p">,</span> <span class="n">msg</span><span class="p">)</span>
+<span class="k">end</span>
+</pre></div>
+</div>
+<dl class="function">
+<dt id="core.Alert">
+<tt class="descclassname">core.</tt><tt class="descname">Alert</tt><big>(</big><em>msg</em><big>)</big><a class="headerlink" href="#core.Alert" title="Permalink to this definition">¶</a></dt>
+<dd><p><strong>context</strong>: body, init, task, action, sample-fetch, converter</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>msg</strong> (<em>string</em>) &#8211; The log content.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">See:</th><td class="field-body"><p class="first last">log</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<div class="highlight-lua"><div class="highlight"><pre><span class="k">function</span> <span class="nf">Alert</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+  <span class="n">core</span><span class="p">.</span><span class="n">log</span><span class="p">(</span><span class="n">core</span><span class="p">.</span><span class="n">alert</span><span class="p">,</span> <span class="n">msg</span><span class="p">)</span>
+<span class="k">end</span>
+</pre></div>
+</div>
+<dl class="function">
+<dt id="core.add_acl">
+<tt class="descclassname">core.</tt><tt class="descname">add_acl</tt><big>(</big><em>filename</em>, <em>key</em><big>)</big><a class="headerlink" href="#core.add_acl" title="Permalink to this definition">¶</a></dt>
+<dd><p><strong>context</strong>: init, task, action, sample-fetch, converter</p>
+<p>Add the ACL <em>key</em> in the ACLs list referenced by the file <em>filename</em>.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first last simple">
+<li><strong>filename</strong> (<em>string</em>) &#8211; the filename that reference the ACL entries.</li>
+<li><strong>key</strong> (<em>string</em>) &#8211; the key which will be added.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="core.del_acl">
+<tt class="descclassname">core.</tt><tt class="descname">del_acl</tt><big>(</big><em>filename</em>, <em>key</em><big>)</big><a class="headerlink" href="#core.del_acl" title="Permalink to this definition">¶</a></dt>
+<dd><p><strong>context</strong>: init, task, action, sample-fetch, converter</p>
+<p>Delete the ACL entry referenced by the key <em>key</em> in the list of ACLs
+referenced by <em>filename</em>.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first last simple">
+<li><strong>filename</strong> (<em>string</em>) &#8211; the filename that reference the ACL entries.</li>
+<li><strong>key</strong> (<em>string</em>) &#8211; the key which will be deleted.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="core.del_map">
+<tt class="descclassname">core.</tt><tt class="descname">del_map</tt><big>(</big><em>filename</em>, <em>key</em><big>)</big><a class="headerlink" href="#core.del_map" title="Permalink to this definition">¶</a></dt>
+<dd><p><strong>context</strong>: init, task, action, sample-fetch, converter</p>
+<p>Delete the map entry indexed with the specified key in the list of maps
+referenced by his filename.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first last simple">
+<li><strong>filename</strong> (<em>string</em>) &#8211; the filename that reference the map entries.</li>
+<li><strong>key</strong> (<em>string</em>) &#8211; the key which will be deleted.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="core.msleep">
+<tt class="descclassname">core.</tt><tt class="descname">msleep</tt><big>(</big><em>milliseconds</em><big>)</big><a class="headerlink" href="#core.msleep" title="Permalink to this definition">¶</a></dt>
+<dd><p><strong>context</strong>: body, init, task, action</p>
+<p>The <cite>core.msleep()</cite> stops the Lua execution between specified milliseconds.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first last simple">
+<li><strong>milliseconds</strong> (<em>integer</em>) &#8211; the required milliseconds.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="core.register_action">
+<tt class="descclassname">core.</tt><tt class="descname">register_action</tt><big>(</big><em>name</em>, <em>actions</em>, <em>func</em><big>)</big><a class="headerlink" href="#core.register_action" title="Permalink to this definition">¶</a></dt>
+<dd><p><strong>context</strong>: body</p>
+<p>Register a Lua function executed as action. All the registered action can be
+used in HAProxy with the prefix &#8220;lua.&#8221;. An action gets a TXN object class as
+input.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first last simple">
+<li><strong>name</strong> (<em>string</em>) &#8211; is the name of the converter.</li>
+<li><strong>actions</strong> (<em>table</em>) &#8211; is a table of string describing the HAProxy actions who
+want to register to. The expected actions are &#8216;tcp-req&#8217;,
+&#8216;tcp-res&#8217;, &#8216;http-req&#8217; or &#8216;http-res&#8217;.</li>
+<li><strong>func</strong> (<em>function</em>) &#8211; is the Lua function called to work as converter.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+<p>The prototype of the Lua function used as argument is:</p>
+</dd></dl>
+
+<div class="highlight-lua"><div class="highlight"><pre><span class="k">function</span><span class="p">(</span><span class="n">txn</span><span class="p">)</span>
+</pre></div>
+</div>
+<blockquote>
+<div><ul>
+<li><dl class="first docutils">
+<dt><strong>txn</strong> (<a class="reference internal" href="#txn-class"><em>TXN class</em></a>): this is a TXN object used for manipulating the</dt>
+<dd><p class="first last">current request or TCP stream.</p>
+</dd>
+</dl>
+</li>
+</ul>
+<p>Here, an exemple of action registration. the action juste send an &#8216;Hello world&#8217;
+in the logs.</p>
+</div></blockquote>
+<div class="highlight-lua"><div class="highlight"><pre><span class="n">core</span><span class="p">.</span><span class="n">register_action</span><span class="p">(</span><span class="s2">&quot;</span><span class="s">hello-world&quot;</span><span class="p">,</span> <span class="p">{</span> <span class="s2">&quot;</span><span class="s">tcp-req&quot;</span><span class="p">,</span> <span class="s2">&quot;</span><span class="s">http-req&quot;</span> <span class="p">},</span> <span class="k">function</span><span class="p">(</span><span class="n">txn</span><span class="p">)</span>
+   <span class="n">txn</span><span class="p">:</span><span class="n">Info</span><span class="p">(</span><span class="s2">&quot;</span><span class="s">Hello world&quot;</span><span class="p">)</span>
+<span class="k">end</span><span class="p">)</span>
+</pre></div>
+</div>
+<blockquote>
+<div>This example code is used in HAproxy configuration like this:</div></blockquote>
+<div class="highlight-python"><div class="highlight"><pre>frontend tcp_frt
+  mode tcp
+  tcp-request content lua.hello-world
+
+frontend http_frt
+  mode http
+  http-request lua.hello-world
+</pre></div>
+</div>
+<dl class="function">
+<dt id="core.register_converters">
+<tt class="descclassname">core.</tt><tt class="descname">register_converters</tt><big>(</big><em>name</em>, <em>func</em><big>)</big><a class="headerlink" href="#core.register_converters" title="Permalink to this definition">¶</a></dt>
+<dd><p><strong>context</strong>: body</p>
+<p>Register a Lua function executed as converter. All the registered converters
+can be used in HAProxy with the prefix &#8220;lua.&#8221;. An converter get a string as
+input and return a string as output. The registered function can take up to 9
+values as parameter. All the value are strings.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first last simple">
+<li><strong>name</strong> (<em>string</em>) &#8211; is the name of the converter.</li>
+<li><strong>func</strong> (<em>function</em>) &#8211; is the Lua function called to work as converter.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+<p>The prototype of the Lua function used as argument is:</p>
+</dd></dl>
+
+<div class="highlight-lua"><div class="highlight"><pre><span class="k">function</span><span class="p">(</span><span class="n">str</span><span class="p">,</span> <span class="p">[</span><span class="n">p1</span> <span class="p">[,</span> <span class="n">p2</span> <span class="p">[,</span> <span class="o">...</span> <span class="p">[,</span> <span class="n">p5</span><span class="p">]]]])</span>
+</pre></div>
+</div>
+<blockquote>
+<div><ul class="simple">
+<li><strong>str</strong> (<em>string</em>): this is the input value automatically converted in
+string.</li>
+<li><strong>p1</strong> .. <strong>p5</strong> (<em>string</em>): this is a list of string arguments declared in
+the haroxy configuration file. The number of arguments doesn&#8217;t exceed 5.
+The order and the nature of these is conventionally choose by the
+developper.</li>
+</ul>
+</div></blockquote>
+<dl class="function">
+<dt id="core.register_fetches">
+<tt class="descclassname">core.</tt><tt class="descname">register_fetches</tt><big>(</big><em>name</em>, <em>func</em><big>)</big><a class="headerlink" href="#core.register_fetches" title="Permalink to this definition">¶</a></dt>
+<dd><p><strong>context</strong>: body</p>
+<p>Register a Lua function executed as sample fetch. All the registered sample
+fetchs can be used in HAProxy with the prefix &#8220;lua.&#8221;. A Lua sample fetch
+return a string as output. The registered function can take up to 9 values as
+parameter. All the value are strings.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first last simple">
+<li><strong>name</strong> (<em>string</em>) &#8211; is the name of the converter.</li>
+<li><strong>func</strong> (<em>function</em>) &#8211; is the Lua function called to work as sample fetch.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+<p>The prototype of the Lua function used as argument is:</p>
+</dd></dl>
+
+<div class="highlight-lua"><div class="highlight"><pre><span class="n">string</span> <span class="k">function</span><span class="p">(</span><span class="n">txn</span><span class="p">,</span> <span class="p">[</span><span class="n">p1</span> <span class="p">[,</span> <span class="n">p2</span> <span class="p">[,</span> <span class="o">...</span> <span class="p">[,</span> <span class="n">p5</span><span class="p">]]]])</span>
+</pre></div>
+</div>
+<blockquote>
+<div><ul class="simple">
+<li><strong>txn</strong> (<a class="reference internal" href="#txn-class"><em>TXN class</em></a>): this is the txn object associated with the current
+request.</li>
+<li><strong>p1</strong> .. <strong>p5</strong> (<em>string</em>): this is a list of string arguments declared in
+the haroxy configuration file. The number of arguments doesn&#8217;t exceed 5.
+The order and the nature of these is conventionally choose by the
+developper.</li>
+<li><strong>Returns</strong>: A string containing some data, ot nil if the value cannot be
+returned now.</li>
+</ul>
+<p>lua example code:</p>
+</div></blockquote>
+<div class="highlight-lua"><div class="highlight"><pre><span class="n">core</span><span class="p">.</span><span class="n">register_fetches</span><span class="p">(</span><span class="s2">&quot;</span><span class="s">hello&quot;</span><span class="p">,</span> <span class="k">function</span><span class="p">(</span><span class="n">txn</span><span class="p">)</span>
+    <span class="k">return</span> <span class="s2">&quot;</span><span class="s">hello&quot;</span>
+<span class="k">end</span><span class="p">)</span>
+</pre></div>
+</div>
+<blockquote>
+<div>HAProxy example configuration:</div></blockquote>
+<div class="highlight-python"><div class="highlight"><pre>frontend example
+   http-request redirect location /%[lua.hello]
+</pre></div>
+</div>
+<dl class="function">
+<dt id="core.register_service">
+<tt class="descclassname">core.</tt><tt class="descname">register_service</tt><big>(</big><em>name</em>, <em>mode</em>, <em>func</em><big>)</big><a class="headerlink" href="#core.register_service" title="Permalink to this definition">¶</a></dt>
+<dd><p><strong>context</strong>: body</p>
+<p>Register a Lua function executed as a service. All the registered service can
+be used in HAProxy with the prefix &#8220;lua.&#8221;. A service gets an object class as
+input according with the required mode.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first last simple">
+<li><strong>name</strong> (<em>string</em>) &#8211; is the name of the converter.</li>
+<li><strong>mode</strong> (<em>string</em>) &#8211; is string describing the required mode. Only &#8216;tcp&#8217; or
+&#8216;http&#8217; are allowed.</li>
+<li><strong>func</strong> (<em>function</em>) &#8211; is the Lua function called to work as converter.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+<p>The prototype of the Lua function used as argument is:</p>
+</dd></dl>
+
+<div class="highlight-lua"><div class="highlight"><pre><span class="k">function</span><span class="p">(</span><span class="n">applet</span><span class="p">)</span>
+</pre></div>
+</div>
+<blockquote>
+<div><ul class="simple">
+<li><strong>applet</strong> <em>applet</em>  will be a <a class="reference internal" href="#applettcp-class"><em>AppletTCP class</em></a> or a
+<a class="reference internal" href="#applethttp-class"><em>AppletHTTP class</em></a>. It depends the type of registered applet. An applet
+registered with the &#8216;http&#8217; value for the <em>mode</em> parameter will gets a
+<a class="reference internal" href="#applethttp-class"><em>AppletHTTP class</em></a>. If the <em>mode</em> value is &#8216;tcp&#8217;, the applet will gets
+a <a class="reference internal" href="#applettcp-class"><em>AppletTCP class</em></a>.</li>
+</ul>
+<p><strong>warning</strong>: Applets of type &#8216;http&#8217; cannot be called from &#8216;tcp-<em>&#8216;
+rulesets. Only the &#8216;http-</em>&#8216; rulesets are authorized, this means
+that is not possible to call an HTTP applet from a proxy in tcp
+mode. Applets of type &#8216;tcp&#8217; can be called from anywhre.</p>
+<p>Here, an exemple of service registration. the service just send an &#8216;Hello world&#8217;
+as an http response.</p>
+</div></blockquote>
+<div class="highlight-lua"><div class="highlight"><pre><span class="n">core</span><span class="p">.</span><span class="n">register_service</span><span class="p">(</span><span class="s2">&quot;</span><span class="s">hello-world&quot;</span><span class="p">,</span> <span class="s2">&quot;</span><span class="s">http&quot;</span><span class="p">,</span> <span class="k">function</span><span class="p">(</span><span class="n">applet</span><span class="p">)</span>
+   <span class="kd">local</span> <span class="n">response</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="s">Hello World !&quot;</span>
+   <span class="n">applet</span><span class="p">:</span><span class="n">set_status</span><span class="p">(</span><span class="mi">200</span><span class="p">)</span>
+   <span class="n">applet</span><span class="p">:</span><span class="n">add_header</span><span class="p">(</span><span class="s2">&quot;</span><span class="s">content-length&quot;</span><span class="p">,</span> <span class="nb">string.len</span><span class="p">(</span><span class="n">response</span><span class="p">))</span>
+   <span class="n">applet</span><span class="p">:</span><span class="n">add_header</span><span class="p">(</span><span class="s2">&quot;</span><span class="s">content-type&quot;</span><span class="p">,</span> <span class="s2">&quot;</span><span class="s">text/plain&quot;</span><span class="p">)</span>
+   <span class="n">applet</span><span class="p">:</span><span class="n">start_response</span><span class="p">()</span>
+   <span class="n">applet</span><span class="p">:</span><span class="n">send</span><span class="p">(</span><span class="n">response</span><span class="p">)</span>
+<span class="k">end</span><span class="p">)</span>
+</pre></div>
+</div>
+<blockquote>
+<div>This example code is used in HAproxy configuration like this:</div></blockquote>
+<div class="highlight-python"><div class="highlight"><pre>frontend example
+   http-request use-service lua.hello-world
+</pre></div>
+</div>
+<dl class="function">
+<dt id="core.register_init">
+<tt class="descclassname">core.</tt><tt class="descname">register_init</tt><big>(</big><em>func</em><big>)</big><a class="headerlink" href="#core.register_init" title="Permalink to this definition">¶</a></dt>
+<dd><p><strong>context</strong>: body</p>
+<p>Register a function executed after the configuration parsing. This is useful
+to check any parameters.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first last simple">
+<li><strong>func</strong> (<em>function</em>) &#8211; is the Lua function called to work as initializer.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+<p>The prototype of the Lua function used as argument is:</p>
+</dd></dl>
+
+<div class="highlight-lua"><div class="highlight"><pre><span class="k">function</span><span class="p">()</span>
+</pre></div>
+</div>
+<blockquote>
+<div>It takes no input, and no output is expected.</div></blockquote>
+<dl class="function">
+<dt id="core.register_task">
+<tt class="descclassname">core.</tt><tt class="descname">register_task</tt><big>(</big><em>func</em><big>)</big><a class="headerlink" href="#core.register_task" title="Permalink to this definition">¶</a></dt>
+<dd><p><strong>context</strong>: body, init, task, action, sample-fetch, converter</p>
+<p>Register and start independent task. The task is started when the HAProxy
+main scheduler starts. For example this type of tasks can be executed to
+perform complex health checks.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first last simple">
+<li><strong>func</strong> (<em>function</em>) &#8211; is the Lua function called to work as initializer.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+<p>The prototype of the Lua function used as argument is:</p>
+</dd></dl>
+
+<div class="highlight-lua"><div class="highlight"><pre><span class="k">function</span><span class="p">()</span>
+</pre></div>
+</div>
+<blockquote>
+<div>It takes no input, and no output is expected.</div></blockquote>
+<dl class="function">
+<dt id="core.set_nice">
+<tt class="descclassname">core.</tt><tt class="descname">set_nice</tt><big>(</big><em>nice</em><big>)</big><a class="headerlink" href="#core.set_nice" title="Permalink to this definition">¶</a></dt>
+<dd><p><strong>context</strong>: task, action, sample-fetch, converter</p>
+<p>Change the nice of the current task or current session.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first last simple">
+<li><strong>nice</strong> (<em>integer</em>) &#8211; the nice value, it must be between -1024 and 1024.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="core.set_map">
+<tt class="descclassname">core.</tt><tt class="descname">set_map</tt><big>(</big><em>filename</em>, <em>key</em>, <em>value</em><big>)</big><a class="headerlink" href="#core.set_map" title="Permalink to this definition">¶</a></dt>
+<dd><p><strong>context</strong>: init, task, action, sample-fetch, converter</p>
+<p>set the value <em>value</em> associated to the key <em>key</em> in the map referenced by
+<em>filename</em>.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first last simple">
+<li><strong>filename</strong> (<em>string</em>) &#8211; the Map reference</li>
+<li><strong>key</strong> (<em>string</em>) &#8211; the key to set or replace</li>
+<li><strong>value</strong> (<em>string</em>) &#8211; the associated value</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="core.sleep">
+<tt class="descclassname">core.</tt><tt class="descname">sleep</tt><big>(</big><em>int seconds</em><big>)</big><a class="headerlink" href="#core.sleep" title="Permalink to this definition">¶</a></dt>
+<dd><p><strong>context</strong>: body, init, task, action</p>
+<p>The <cite>core.sleep()</cite> functions stop the Lua execution between specified seconds.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first last simple">
+<li><strong>seconds</strong> (<em>integer</em>) &#8211; the required seconds.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="core.tcp">
+<tt class="descclassname">core.</tt><tt class="descname">tcp</tt><big>(</big><big>)</big><a class="headerlink" href="#core.tcp" title="Permalink to this definition">¶</a></dt>
+<dd><p><strong>context</strong>: init, task, action</p>
+<p>This function returns a new object of a <em>socket</em> class.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">A <a class="reference internal" href="#socket-class"><em>Socket class</em></a> object.</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="core.done">
+<tt class="descclassname">core.</tt><tt class="descname">done</tt><big>(</big><em>data</em><big>)</big><a class="headerlink" href="#core.done" title="Permalink to this definition">¶</a></dt>
+<dd><p><strong>context</strong>: body, init, task, action, sample-fetch, converter</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first last simple">
+<li><strong>data</strong> (<em>any</em>) &#8211; Return some data for the caller. It is useful with
+sample-fetches and sample-converters.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+<p>Immediately stops the current Lua execution and returns to the caller which
+may be a sample fetch, a converter or an action and returns the specified
+value (ignored for actions). It is used when the LUA process finishes its
+work and wants to give back the control to HAProxy without executing the
+remaining code. It can be seen as a multi-level &#8220;return&#8221;.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="core.yield">
+<tt class="descclassname">core.</tt><tt class="descname">yield</tt><big>(</big><big>)</big><a class="headerlink" href="#core.yield" title="Permalink to this definition">¶</a></dt>
+<dd><p><strong>context</strong>: task, action, sample-fetch, converter</p>
+<p>Give back the hand at the HAProxy scheduler. It is used when the LUA
+processing consumes a lot of processing time.</p>
+</dd></dl>
+
+</div>
+<div class="section" id="fetches-class">
+<span id="id1"></span><h1>Fetches class<a class="headerlink" href="#fetches-class" title="Permalink to this headline">¶</a></h1>
+<dl class="class">
+<dt id="Fetches">
+<em class="property">class </em><tt class="descname">Fetches</tt><big>(</big><big>)</big><a class="headerlink" href="#Fetches" title="Permalink to this definition">¶</a></dt>
+<dd><p>This class contains a lot of internal HAProxy sample fetches. See the
+HAProxy &#8220;configuration.txt&#8221; documentation for more information about her
+usage. they are the chapters 7.3.2 to 7.3.6.</p>
+<p><strong>warning</strong> some sample fetches are not available in some context. These
+limitations are specified in this documentation when theire useful.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">See:</th><td class="field-body">TXN.f</td>
+</tr>
+<tr class="field-even field"><th class="field-name">See:</th><td class="field-body">TXN.sf</td>
+</tr>
+</tbody>
+</table>
+<p>Fetches are useful for:</p>
+<ul class="simple">
+<li>get system time,</li>
+<li>get environment variable,</li>
+<li>get random numbers,</li>
+<li>known backend status like the number of users in queue or the number of
+connections established,</li>
+<li>client information like ip source or destination,</li>
+<li>deal with stick tables,</li>
+<li>Established SSL informations,</li>
+<li>HTTP information like headers or method.</li>
+</ul>
+</dd></dl>
+
+<div class="highlight-lua"><div class="highlight"><pre><span class="k">function</span> <span class="nf">action</span><span class="p">(</span><span class="n">txn</span><span class="p">)</span>
+  <span class="c1">-- Get source IP</span>
+  <span class="kd">local</span> <span class="n">clientip</span> <span class="o">=</span> <span class="n">txn</span><span class="p">.</span><span class="n">f</span><span class="p">:</span><span class="n">src</span><span class="p">()</span>
+<span class="k">end</span>
+</pre></div>
+</div>
+</div>
+<div class="section" id="converters-class">
+<span id="id2"></span><h1>Converters class<a class="headerlink" href="#converters-class" title="Permalink to this headline">¶</a></h1>
+<dl class="class">
+<dt id="Converters">
+<em class="property">class </em><tt class="descname">Converters</tt><big>(</big><big>)</big><a class="headerlink" href="#Converters" title="Permalink to this definition">¶</a></dt>
+<dd><p>This class contains a lot of internal HAProxy sample converters. See the
+HAProxy documentation &#8220;configuration.txt&#8221; for more information about her
+usage. Its the chapter 7.3.1.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">See:</th><td class="field-body">TXN.c</td>
+</tr>
+<tr class="field-even field"><th class="field-name">See:</th><td class="field-body">TXN.sc</td>
+</tr>
+</tbody>
+</table>
+<p>Converters provides statefull transformation. They are useful for:</p>
+<ul class="simple">
+<li>converting input to base64,</li>
+<li>applying hash on input string (djb2, crc32, sdbm, wt6),</li>
+<li>format date,</li>
+<li>json escape,</li>
+<li>extracting preferred language comparing two lists,</li>
+<li>turn to lower or upper chars,</li>
+<li>deal with stick tables.</li>
+</ul>
+</dd></dl>
+
+</div>
+<div class="section" id="channel-class">
+<span id="id3"></span><h1>Channel class<a class="headerlink" href="#channel-class" title="Permalink to this headline">¶</a></h1>
+<dl class="class">
+<dt id="Channel">
+<em class="property">class </em><tt class="descname">Channel</tt><big>(</big><big>)</big><a class="headerlink" href="#Channel" title="Permalink to this definition">¶</a></dt>
+<dd><p>HAProxy uses two buffers for the processing of the requests. The first one is
+used with the request data (from the client to the server) and the second is
+used for the response data (from the server to the client).</p>
+<p>Each buffer contains two types of data. The first type is the incoming data
+waiting for a processing. The second part is the outgoing data already
+processed. Usually, the incoming data is processed, after it is tagged as
+outgoing data, and finally it is sent. The following functions provides tools
+for manipulating these data in a buffer.</p>
+<p>The following diagram shows where the channel class function are applied.</p>
+<p><strong>Warning</strong>: It is not possible to read from the response in request action,
+and it is not possible to read for the request channel in response action.</p>
+</dd></dl>
+
+<img alt="_images/channel.png" src="_images/channel.png" />
+<dl class="function">
+<dt id="Channel.dup">
+<tt class="descclassname">Channel.</tt><tt class="descname">dup</tt><big>(</big><em>channel</em><big>)</big><a class="headerlink" href="#Channel.dup" title="Permalink to this definition">¶</a></dt>
+<dd><p>This function returns a string that contain the entire buffer. The data is
+not remove from the buffer and can be reprocessed later.</p>
+<p>If the buffer cant receive more data, a &#8216;nil&#8217; value is returned.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>channel</strong> (<em>class_channel</em>) &#8211; The manipulated Channel.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">a string containing all the available data or nil.</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="Channel.get">
+<tt class="descclassname">Channel.</tt><tt class="descname">get</tt><big>(</big><em>channel</em><big>)</big><a class="headerlink" href="#Channel.get" title="Permalink to this definition">¶</a></dt>
+<dd><p>This function returns a string that contain the entire buffer. The data is
+consumed from the buffer.</p>
+<p>If the buffer cant receive more data, a &#8216;nil&#8217; value is returned.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>channel</strong> (<em>class_channel</em>) &#8211; The manipulated Channel.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">a string containing all the available data or nil.</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="Channel.getline">
+<tt class="descclassname">Channel.</tt><tt class="descname">getline</tt><big>(</big><em>channel</em><big>)</big><a class="headerlink" href="#Channel.getline" title="Permalink to this definition">¶</a></dt>
+<dd><p>This function returns a string that contain the first line of the buffer. The
+data is consumed. If the data returned doesn&#8217;t contains a final &#8216;n&#8217; its
+assumed than its the last available data in the buffer.</p>
+<p>If the buffer cant receive more data, a &#8216;nil&#8217; value is returned.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>channel</strong> (<em>class_channel</em>) &#8211; The manipulated Channel.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">a string containing the available line or nil.</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="Channel.set">
+<tt class="descclassname">Channel.</tt><tt class="descname">set</tt><big>(</big><em>channel</em>, <em>string</em><big>)</big><a class="headerlink" href="#Channel.set" title="Permalink to this definition">¶</a></dt>
+<dd><p>This function replace the content of the buffer by the string. The function
+returns the copied length, otherwise, it returns -1.</p>
+<p>The data set with this function are not send. They wait for the end of
+HAProxy processing, so the buffer can be full.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>channel</strong> (<em>class_channel</em>) &#8211; The manipulated Channel.</li>
+<li><strong>string</strong> (<em>string</em>) &#8211; The data which will sent.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">an integer containing the amount of bytes copied or -1.</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="Channel.append">
+<tt class="descclassname">Channel.</tt><tt class="descname">append</tt><big>(</big><em>channel</em>, <em>string</em><big>)</big><a class="headerlink" href="#Channel.append" title="Permalink to this definition">¶</a></dt>
+<dd><p>This function append the string argument to the content of the buffer. The
+function returns the copied length, otherwise, it returns -1.</p>
+<p>The data set with this function are not send. They wait for the end of
+HAProxy processing, so the buffer can be full.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>channel</strong> (<em>class_channel</em>) &#8211; The manipulated Channel.</li>
+<li><strong>string</strong> (<em>string</em>) &#8211; The data which will sent.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">an integer containing the amount of bytes copied or -1.</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="Channel.send">
+<tt class="descclassname">Channel.</tt><tt class="descname">send</tt><big>(</big><em>channel</em>, <em>string</em><big>)</big><a class="headerlink" href="#Channel.send" title="Permalink to this definition">¶</a></dt>
+<dd><p>This function required immediate send of the data. Unless if the connection
+is close, the buffer is regularly flushed and all the string can be sent.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>channel</strong> (<em>class_channel</em>) &#8211; The manipulated Channel.</li>
+<li><strong>string</strong> (<em>string</em>) &#8211; The data which will sent.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">an integer containing the amount of bytes copied or -1.</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="Channel.get_in_length">
+<tt class="descclassname">Channel.</tt><tt class="descname">get_in_length</tt><big>(</big><em>channel</em><big>)</big><a class="headerlink" href="#Channel.get_in_length" title="Permalink to this definition">¶</a></dt>
+<dd><p>This function returns the length of the input part of the buffer.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>channel</strong> (<em>class_channel</em>) &#8211; The manipulated Channel.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">an integer containing the amount of available bytes.</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="Channel.get_out_length">
+<tt class="descclassname">Channel.</tt><tt class="descname">get_out_length</tt><big>(</big><em>channel</em><big>)</big><a class="headerlink" href="#Channel.get_out_length" title="Permalink to this definition">¶</a></dt>
+<dd><p>This function returns the length of the output part of the buffer.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>channel</strong> (<em>class_channel</em>) &#8211; The manipulated Channel.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">an integer containing the amount of available bytes.</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="Channel.forward">
+<tt class="descclassname">Channel.</tt><tt class="descname">forward</tt><big>(</big><em>channel</em>, <em>int</em><big>)</big><a class="headerlink" href="#Channel.forward" title="Permalink to this definition">¶</a></dt>
+<dd><p>This function transfer bytes from the input part of the buffer to the output
+part.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first last simple">
+<li><strong>channel</strong> (<em>class_channel</em>) &#8211; The manipulated Channel.</li>
+<li><strong>int</strong> (<em>integer</em>) &#8211; The amount of data which will be forwarded.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+</div>
+<div class="section" id="http-class">
+<span id="id4"></span><h1>HTTP class<a class="headerlink" href="#http-class" title="Permalink to this headline">¶</a></h1>
+<dl class="class">
+<dt id="HTTP">
+<em class="property">class </em><tt class="descname">HTTP</tt><big>(</big><big>)</big><a class="headerlink" href="#HTTP" title="Permalink to this definition">¶</a></dt>
+<dd><p>This class contain all the HTTP manipulation functions.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="HTTP.req_get_headers">
+<tt class="descclassname">HTTP.</tt><tt class="descname">req_get_headers</tt><big>(</big><em>http</em><big>)</big><a class="headerlink" href="#HTTP.req_get_headers" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns an array containing all the request headers.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>http</strong> (<em>class_http</em>) &#8211; The related http object.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first">array of headers.</p>
+</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">See:</th><td class="field-body"><p class="first last">HTTP.res_get_headers()</p>
+</td>
+</tr>
+</tbody>
+</table>
+<p>This is the form of the returned array:</p>
+</dd></dl>
+
+<div class="highlight-lua"><div class="highlight"><pre><span class="n">HTTP</span><span class="p">:</span><span class="n">req_get_headers</span><span class="p">()[</span><span class="s1">&#39;</span><span class="s">&lt;header-name&gt;&#39;</span><span class="p">][</span><span class="o">&lt;</span><span class="n">header</span><span class="o">-</span><span class="n">index</span><span class="o">&gt;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="s">&lt;header-value&gt;&quot;</span>
+
+<span class="kd">local</span> <span class="n">hdr</span> <span class="o">=</span> <span class="n">HTTP</span><span class="p">:</span><span class="n">req_get_headers</span><span class="p">()</span>
+<span class="n">hdr</span><span class="p">[</span><span class="s2">&quot;</span><span class="s">host&quot;</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="s">www.test.com&quot;</span>
+<span class="n">hdr</span><span class="p">[</span><span class="s2">&quot;</span><span class="s">accept&quot;</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="s">audio/basic q=1&quot;</span>
+<span class="n">hdr</span><span class="p">[</span><span class="s2">&quot;</span><span class="s">accept&quot;</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="s">audio/*, q=0.2&quot;</span>
+<span class="n">hdr</span><span class="p">[</span><span class="s2">&quot;</span><span class="s">accept&quot;</span><span class="p">][</span><span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="s">*/*, q=0.1&quot;</span>
+</pre></div>
+</div>
+<dl class="function">
+<dt id="HTTP.res_get_headers">
+<tt class="descclassname">HTTP.</tt><tt class="descname">res_get_headers</tt><big>(</big><em>http</em><big>)</big><a class="headerlink" href="#HTTP.res_get_headers" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns an array containing all the response headers.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>http</strong> (<em>class_http</em>) &#8211; The related http object.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first">array of headers.</p>
+</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">See:</th><td class="field-body"><p class="first last">HTTP.req_get_headers()</p>
+</td>
+</tr>
+</tbody>
+</table>
+<p>This is the form of the returned array:</p>
+</dd></dl>
+
+<div class="highlight-lua"><div class="highlight"><pre><span class="n">HTTP</span><span class="p">:</span><span class="n">res_get_headers</span><span class="p">()[</span><span class="s1">&#39;</span><span class="s">&lt;header-name&gt;&#39;</span><span class="p">][</span><span class="o">&lt;</span><span class="n">header</span><span class="o">-</span><span class="n">index</span><span class="o">&gt;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="s">&lt;header-value&gt;&quot;</span>
+
+<span class="kd">local</span> <span class="n">hdr</span> <span class="o">=</span> <span class="n">HTTP</span><span class="p">:</span><span class="n">req_get_headers</span><span class="p">()</span>
+<span class="n">hdr</span><span class="p">[</span><span class="s2">&quot;</span><span class="s">host&quot;</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="s">www.test.com&quot;</span>
+<span class="n">hdr</span><span class="p">[</span><span class="s2">&quot;</span><span class="s">accept&quot;</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="s">audio/basic q=1&quot;</span>
+<span class="n">hdr</span><span class="p">[</span><span class="s2">&quot;</span><span class="s">accept&quot;</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="s">audio/*, q=0.2&quot;</span>
+<span class="n">hdr</span><span class="p">[</span><span class="s2">&quot;</span><span class="s">accept&quot;</span><span class="p">][</span><span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="s">*.*, q=0.1&quot;</span>
+</pre></div>
+</div>
+<dl class="function">
+<dt id="HTTP.req_add_header">
+<tt class="descclassname">HTTP.</tt><tt class="descname">req_add_header</tt><big>(</big><em>http</em>, <em>name</em>, <em>value</em><big>)</big><a class="headerlink" href="#HTTP.req_add_header" title="Permalink to this definition">¶</a></dt>
+<dd><p>Appends an HTTP header field in the request whose name is
+specified in &#8220;name&#8221; and whose value is defined in &#8220;value&#8221;.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>http</strong> (<em>class_http</em>) &#8211; The related http object.</li>
+<li><strong>name</strong> (<em>string</em>) &#8211; The header name.</li>
+<li><strong>value</strong> (<em>string</em>) &#8211; The header value.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">See:</th><td class="field-body"><p class="first last">HTTP.res_add_header()</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="HTTP.res_add_header">
+<tt class="descclassname">HTTP.</tt><tt class="descname">res_add_header</tt><big>(</big><em>http</em>, <em>name</em>, <em>value</em><big>)</big><a class="headerlink" href="#HTTP.res_add_header" title="Permalink to this definition">¶</a></dt>
+<dd><p>appends an HTTP header field in the response whose name is
+specified in &#8220;name&#8221; and whose value is defined in &#8220;value&#8221;.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>http</strong> (<em>class_http</em>) &#8211; The related http object.</li>
+<li><strong>name</strong> (<em>string</em>) &#8211; The header name.</li>
+<li><strong>value</strong> (<em>string</em>) &#8211; The header value.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">See:</th><td class="field-body"><p class="first last">HTTP.req_add_header()</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="HTTP.req_del_header">
+<tt class="descclassname">HTTP.</tt><tt class="descname">req_del_header</tt><big>(</big><em>http</em>, <em>name</em><big>)</big><a class="headerlink" href="#HTTP.req_del_header" title="Permalink to this definition">¶</a></dt>
+<dd><p>Removes all HTTP header fields in the request whose name is
+specified in &#8220;name&#8221;.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>http</strong> (<em>class_http</em>) &#8211; The related http object.</li>
+<li><strong>name</strong> (<em>string</em>) &#8211; The header name.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">See:</th><td class="field-body"><p class="first last">HTTP.res_del_header()</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="HTTP.res_del_header">
+<tt class="descclassname">HTTP.</tt><tt class="descname">res_del_header</tt><big>(</big><em>http</em>, <em>name</em><big>)</big><a class="headerlink" href="#HTTP.res_del_header" title="Permalink to this definition">¶</a></dt>
+<dd><p>Removes all HTTP header fields in the response whose name is
+specified in &#8220;name&#8221;.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>http</strong> (<em>class_http</em>) &#8211; The related http object.</li>
+<li><strong>name</strong> (<em>string</em>) &#8211; The header name.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">See:</th><td class="field-body"><p class="first last">HTTP.req_del_header()</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="HTTP.req_set_header">
+<tt class="descclassname">HTTP.</tt><tt class="descname">req_set_header</tt><big>(</big><em>http</em>, <em>name</em>, <em>value</em><big>)</big><a class="headerlink" href="#HTTP.req_set_header" title="Permalink to this definition">¶</a></dt>
+<dd><p>This variable replace all occurence of all header &#8220;name&#8221;, by only
+one containing the &#8220;value&#8221;.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>http</strong> (<em>class_http</em>) &#8211; The related http object.</li>
+<li><strong>name</strong> (<em>string</em>) &#8211; The header name.</li>
+<li><strong>value</strong> (<em>string</em>) &#8211; The header value.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">See:</th><td class="field-body"><p class="first last">HTTP.res_set_header()</p>
+</td>
+</tr>
+</tbody>
+</table>
+<p>This function does the same work as the folowwing code:</p>
+</dd></dl>
+
+<div class="highlight-lua"><div class="highlight"><pre><span class="k">function</span> <span class="nf">fcn</span><span class="p">(</span><span class="n">txn</span><span class="p">)</span>
+   <span class="n">TXN</span><span class="p">.</span><span class="n">http</span><span class="p">:</span><span class="n">req_del_header</span><span class="p">(</span><span class="s2">&quot;</span><span class="s">header&quot;</span><span class="p">)</span>
+   <span class="n">TXN</span><span class="p">.</span><span class="n">http</span><span class="p">:</span><span class="n">req_add_header</span><span class="p">(</span><span class="s2">&quot;</span><span class="s">header&quot;</span><span class="p">,</span> <span class="s2">&quot;</span><span class="s">value&quot;</span><span class="p">)</span>
+<span class="k">end</span>
+</pre></div>
+</div>
+<dl class="function">
+<dt id="HTTP.res_set_header">
+<tt class="descclassname">HTTP.</tt><tt class="descname">res_set_header</tt><big>(</big><em>http</em>, <em>name</em>, <em>value</em><big>)</big><a class="headerlink" href="#HTTP.res_set_header" title="Permalink to this definition">¶</a></dt>
+<dd><p>This variable replace all occurence of all header &#8220;name&#8221;, by only
+one containing the &#8220;value&#8221;.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>http</strong> (<em>class_http</em>) &#8211; The related http object.</li>
+<li><strong>name</strong> (<em>string</em>) &#8211; The header name.</li>
+<li><strong>value</strong> (<em>string</em>) &#8211; The header value.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">See:</th><td class="field-body"><p class="first last">HTTP.req_rep_header()</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="HTTP.req_rep_header">
+<tt class="descclassname">HTTP.</tt><tt class="descname">req_rep_header</tt><big>(</big><em>http</em>, <em>name</em>, <em>regex</em>, <em>replace</em><big>)</big><a class="headerlink" href="#HTTP.req_rep_header" title="Permalink to this definition">¶</a></dt>
+<dd><p>Matches the regular expression in all occurrences of header field &#8220;name&#8221;
+according to &#8220;regex&#8221;, and replaces them with the &#8220;replace&#8221; argument. The
+replacement value can contain back references like 1, 2, ... This
+function works with the request.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>http</strong> (<em>class_http</em>) &#8211; The related http object.</li>
+<li><strong>name</strong> (<em>string</em>) &#8211; The header name.</li>
+<li><strong>regex</strong> (<em>string</em>) &#8211; The match regular expression.</li>
+<li><strong>replace</strong> (<em>string</em>) &#8211; The replacement value.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">See:</th><td class="field-body"><p class="first last">HTTP.res_rep_header()</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="HTTP.res_rep_header">
+<tt class="descclassname">HTTP.</tt><tt class="descname">res_rep_header</tt><big>(</big><em>http</em>, <em>name</em>, <em>regex</em>, <em>string</em><big>)</big><a class="headerlink" href="#HTTP.res_rep_header" title="Permalink to this definition">¶</a></dt>
+<dd><p>Matches the regular expression in all occurrences of header field &#8220;name&#8221;
+according to &#8220;regex&#8221;, and replaces them with the &#8220;replace&#8221; argument. The
+replacement value can contain back references like 1, 2, ... This
+function works with the request.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>http</strong> (<em>class_http</em>) &#8211; The related http object.</li>
+<li><strong>name</strong> (<em>string</em>) &#8211; The header name.</li>
+<li><strong>regex</strong> (<em>string</em>) &#8211; The match regular expression.</li>
+<li><strong>replace</strong> (<em>string</em>) &#8211; The replacement value.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">See:</th><td class="field-body"><p class="first last">HTTP.req_replace_header()</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="HTTP.req_replace_value">
+<tt class="descclassname">HTTP.</tt><tt class="descname">req_replace_value</tt><big>(</big><em>http</em>, <em>name</em>, <em>regex</em>, <em>replace</em><big>)</big><a class="headerlink" href="#HTTP.req_replace_value" title="Permalink to this definition">¶</a></dt>
+<dd><p>Works like &#8220;HTTP.req_replace_header()&#8221; except that it matches the regex
+against every comma-delimited value of the header field &#8220;name&#8221; instead of the
+entire header.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>http</strong> (<em>class_http</em>) &#8211; The related http object.</li>
+<li><strong>name</strong> (<em>string</em>) &#8211; The header name.</li>
+<li><strong>regex</strong> (<em>string</em>) &#8211; The match regular expression.</li>
+<li><strong>replace</strong> (<em>string</em>) &#8211; The replacement value.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">See:</th><td class="field-body"><p class="first">HTTP.req_replace_header()</p>
+</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">See:</th><td class="field-body"><p class="first last">HTTP.res_replace_value()</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="HTTP.res_replace_value">
+<tt class="descclassname">HTTP.</tt><tt class="descname">res_replace_value</tt><big>(</big><em>http</em>, <em>name</em>, <em>regex</em>, <em>replace</em><big>)</big><a class="headerlink" href="#HTTP.res_replace_value" title="Permalink to this definition">¶</a></dt>
+<dd><p>Works like &#8220;HTTP.res_replace_header()&#8221; except that it matches the regex
+against every comma-delimited value of the header field &#8220;name&#8221; instead of the
+entire header.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>http</strong> (<em>class_http</em>) &#8211; The related http object.</li>
+<li><strong>name</strong> (<em>string</em>) &#8211; The header name.</li>
+<li><strong>regex</strong> (<em>string</em>) &#8211; The match regular expression.</li>
+<li><strong>replace</strong> (<em>string</em>) &#8211; The replacement value.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">See:</th><td class="field-body"><p class="first">HTTP.res_replace_header()</p>
+</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">See:</th><td class="field-body"><p class="first last">HTTP.req_replace_value()</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="HTTP.req_set_method">
+<tt class="descclassname">HTTP.</tt><tt class="descname">req_set_method</tt><big>(</big><em>http</em>, <em>method</em><big>)</big><a class="headerlink" href="#HTTP.req_set_method" title="Permalink to this definition">¶</a></dt>
+<dd><p>Rewrites the request method with the parameter &#8220;method&#8221;.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first last simple">
+<li><strong>http</strong> (<em>class_http</em>) &#8211; The related http object.</li>
+<li><strong>method</strong> (<em>string</em>) &#8211; The new method.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="HTTP.req_set_path">
+<tt class="descclassname">HTTP.</tt><tt class="descname">req_set_path</tt><big>(</big><em>http</em>, <em>path</em><big>)</big><a class="headerlink" href="#HTTP.req_set_path" title="Permalink to this definition">¶</a></dt>
+<dd><p>Rewrites the request path with the &#8220;path&#8221; parameter.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first last simple">
+<li><strong>http</strong> (<em>class_http</em>) &#8211; The related http object.</li>
+<li><strong>path</strong> (<em>string</em>) &#8211; The new path.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="HTTP.req_set_query">
+<tt class="descclassname">HTTP.</tt><tt class="descname">req_set_query</tt><big>(</big><em>http</em>, <em>query</em><big>)</big><a class="headerlink" href="#HTTP.req_set_query" title="Permalink to this definition">¶</a></dt>
+<dd><p>Rewrites the request&#8217;s query string which appears after the first question
+mark (&#8221;?&#8221;) with the parameter &#8220;query&#8221;.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first last simple">
+<li><strong>http</strong> (<em>class_http</em>) &#8211; The related http object.</li>
+<li><strong>query</strong> (<em>string</em>) &#8211; The new query.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="HTTP.req_set_uri">
+<tt class="descclassname">HTTP.</tt><tt class="descname">req_set_uri</tt><big>(</big><em>http</em>, <em>uri</em><big>)</big><a class="headerlink" href="#HTTP.req_set_uri" title="Permalink to this definition">¶</a></dt>
+<dd><p>Rewrites the request URI with the parameter &#8220;uri&#8221;.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first last simple">
+<li><strong>http</strong> (<em>class_http</em>) &#8211; The related http object.</li>
+<li><strong>uri</strong> (<em>string</em>) &#8211; The new uri.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="HTTP.res_set_status">
+<tt class="descclassname">HTTP.</tt><tt class="descname">res_set_status</tt><big>(</big><em>http</em>, <em>status</em><big>)</big><a class="headerlink" href="#HTTP.res_set_status" title="Permalink to this definition">¶</a></dt>
+<dd><p>Rewrites the response status code with the parameter &#8220;code&#8221;. Note that the
+reason is automatically adapted to the new code.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first last simple">
+<li><strong>http</strong> (<em>class_http</em>) &#8211; The related http object.</li>
+<li><strong>status</strong> (<em>integer</em>) &#8211; The new response status code.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+</div>
+<div class="section" id="txn-class">
+<span id="id5"></span><h1>TXN class<a class="headerlink" href="#txn-class" title="Permalink to this headline">¶</a></h1>
+<dl class="class">
+<dt id="TXN">
+<em class="property">class </em><tt class="descname">TXN</tt><big>(</big><big>)</big><a class="headerlink" href="#TXN" title="Permalink to this definition">¶</a></dt>
+<dd><p>The txn class contain all the functions relative to the http or tcp
+transaction (Note than a tcp stream is the same than a tcp transaction, but
+an HTTP transaction is not the same than a tcp stream).</p>
+<p>The usage of this class permits to retrieve data from the requests, alter it
+and forward it.</p>
+<p>All the functions provided by this class are available in the context
+<strong>sample-fetches</strong> and <strong>actions</strong>.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="TXN.c">
+<tt class="descclassname">TXN.</tt><tt class="descname">c</tt><a class="headerlink" href="#TXN.c" title="Permalink to this definition">¶</a></dt>
+<dd><table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">An <a class="reference internal" href="#converters-class"><em>Converters class</em></a>.</td>
+</tr>
+</tbody>
+</table>
+<p>This attribute contains a Converters class object.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="TXN.sc">
+<tt class="descclassname">TXN.</tt><tt class="descname">sc</tt><a class="headerlink" href="#TXN.sc" title="Permalink to this definition">¶</a></dt>
+<dd><table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">An <a class="reference internal" href="#converters-class"><em>Converters class</em></a>.</td>
+</tr>
+</tbody>
+</table>
+<p>This attribute contains a Converters class object. The functions of
+this object returns always a string.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="TXN.f">
+<tt class="descclassname">TXN.</tt><tt class="descname">f</tt><a class="headerlink" href="#TXN.f" title="Permalink to this definition">¶</a></dt>
+<dd><table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">An <a class="reference internal" href="#fetches-class"><em>Fetches class</em></a>.</td>
+</tr>
+</tbody>
+</table>
+<p>This attribute contains a Fetches class object.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="TXN.sf">
+<tt class="descclassname">TXN.</tt><tt class="descname">sf</tt><a class="headerlink" href="#TXN.sf" title="Permalink to this definition">¶</a></dt>
+<dd><table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">An <a class="reference internal" href="#fetches-class"><em>Fetches class</em></a>.</td>
+</tr>
+</tbody>
+</table>
+<p>This attribute contains a Fetches class object. The functions of
+this object returns always a string.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="TXN.req">
+<tt class="descclassname">TXN.</tt><tt class="descname">req</tt><a class="headerlink" href="#TXN.req" title="Permalink to this definition">¶</a></dt>
+<dd><table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">An <a class="reference internal" href="#channel-class"><em>Channel class</em></a>.</td>
+</tr>
+</tbody>
+</table>
+<p>This attribute contains a channel class object for the request buffer.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="TXN.res">
+<tt class="descclassname">TXN.</tt><tt class="descname">res</tt><a class="headerlink" href="#TXN.res" title="Permalink to this definition">¶</a></dt>
+<dd><table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">An <a class="reference internal" href="#channel-class"><em>Channel class</em></a>.</td>
+</tr>
+</tbody>
+</table>
+<p>This attribute contains a channel class object for the response buffer.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="TXN.http">
+<tt class="descclassname">TXN.</tt><tt class="descname">http</tt><a class="headerlink" href="#TXN.http" title="Permalink to this definition">¶</a></dt>
+<dd><table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">An <a class="reference internal" href="#http-class"><em>HTTP class</em></a>.</td>
+</tr>
+</tbody>
+</table>
+<p>This attribute contains an HTTP class object. It is avalaible only if the
+proxy has the &#8220;mode http&#8221; enabled.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="TXN.log">
+<tt class="descclassname">TXN.</tt><tt class="descname">log</tt><big>(</big><em>TXN</em>, <em>loglevel</em>, <em>msg</em><big>)</big><a class="headerlink" href="#TXN.log" title="Permalink to this definition">¶</a></dt>
+<dd><p>This function sends a log. The log is sent, according with the HAProxy
+configuration file, on the default syslog server if it is configured and on
+the stderr if it is allowed.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>txn</strong> (<em>class_txn</em>) &#8211; The class txn object containing the data.</li>
+<li><strong>loglevel</strong> (<em>integer</em>) &#8211; Is the log level asociated with the message. It is a
+number between 0 and 7.</li>
+<li><strong>msg</strong> (<em>string</em>) &#8211; The log content.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">See:</th><td class="field-body"><p class="first">core.emerg, core.alert, core.crit, core.err, core.warning, core.notice,
+core.info, core.debug (log level definitions)</p>
+</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">See:</th><td class="field-body"><p class="first">TXN.deflog</p>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">See:</th><td class="field-body"><p class="first">TXN.Debug</p>
+</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">See:</th><td class="field-body"><p class="first">TXN.Info</p>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">See:</th><td class="field-body"><p class="first">TXN.Warning</p>
+</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">See:</th><td class="field-body"><p class="first last">TXN.Alert</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="TXN.deflog">
+<tt class="descclassname">TXN.</tt><tt class="descname">deflog</tt><big>(</big><em>TXN</em>, <em>msg</em><big>)</big><a class="headerlink" href="#TXN.deflog" title="Permalink to this definition">¶</a></dt>
+<dd><p>Sends a log line with the default loglevel for the proxy ssociated with the
+transaction.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>txn</strong> (<em>class_txn</em>) &#8211; The class txn object containing the data.</li>
+<li><strong>msg</strong> (<em>string</em>) &#8211; The log content.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">See:</th><td class="field-body"><p class="first last">TXN.log</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="TXN.Debug">
+<tt class="descclassname">TXN.</tt><tt class="descname">Debug</tt><big>(</big><em>txn</em>, <em>msg</em><big>)</big><a class="headerlink" href="#TXN.Debug" title="Permalink to this definition">¶</a></dt>
+<dd><table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>txn</strong> (<em>class_txn</em>) &#8211; The class txn object containing the data.</li>
+<li><strong>msg</strong> (<em>string</em>) &#8211; The log content.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">See:</th><td class="field-body"><p class="first last">TXN.log</p>
+</td>
+</tr>
+</tbody>
+</table>
+<p>Does the same job than:</p>
+</dd></dl>
+
+<div class="highlight-lua"><div class="highlight"><pre><span class="k">function</span> <span class="nf">Debug</span><span class="p">(</span><span class="n">txn</span><span class="p">,</span> <span class="n">msg</span><span class="p">)</span>
+  <span class="n">TXN</span><span class="p">.</span><span class="n">log</span><span class="p">(</span><span class="n">txn</span><span class="p">,</span> <span class="n">core</span><span class="p">.</span><span class="n">debug</span><span class="p">,</span> <span class="n">msg</span><span class="p">)</span>
+<span class="k">end</span>
+</pre></div>
+</div>
+<dl class="function">
+<dt id="TXN.Info">
+<tt class="descclassname">TXN.</tt><tt class="descname">Info</tt><big>(</big><em>txn</em>, <em>msg</em><big>)</big><a class="headerlink" href="#TXN.Info" title="Permalink to this definition">¶</a></dt>
+<dd><table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>txn</strong> (<em>class_txn</em>) &#8211; The class txn object containing the data.</li>
+<li><strong>msg</strong> (<em>string</em>) &#8211; The log content.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">See:</th><td class="field-body"><p class="first last">TXN.log</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<div class="highlight-lua"><div class="highlight"><pre><span class="k">function</span> <span class="nf">Debug</span><span class="p">(</span><span class="n">txn</span><span class="p">,</span> <span class="n">msg</span><span class="p">)</span>
+  <span class="n">TXN</span><span class="p">.</span><span class="n">log</span><span class="p">(</span><span class="n">txn</span><span class="p">,</span> <span class="n">core</span><span class="p">.</span><span class="n">info</span><span class="p">,</span> <span class="n">msg</span><span class="p">)</span>
+<span class="k">end</span>
+</pre></div>
+</div>
+<dl class="function">
+<dt id="TXN.Warning">
+<tt class="descclassname">TXN.</tt><tt class="descname">Warning</tt><big>(</big><em>txn</em>, <em>msg</em><big>)</big><a class="headerlink" href="#TXN.Warning" title="Permalink to this definition">¶</a></dt>
+<dd><table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>txn</strong> (<em>class_txn</em>) &#8211; The class txn object containing the data.</li>
+<li><strong>msg</strong> (<em>string</em>) &#8211; The log content.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">See:</th><td class="field-body"><p class="first last">TXN.log</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<div class="highlight-lua"><div class="highlight"><pre><span class="k">function</span> <span class="nf">Debug</span><span class="p">(</span><span class="n">txn</span><span class="p">,</span> <span class="n">msg</span><span class="p">)</span>
+  <span class="n">TXN</span><span class="p">.</span><span class="n">log</span><span class="p">(</span><span class="n">txn</span><span class="p">,</span> <span class="n">core</span><span class="p">.</span><span class="n">warning</span><span class="p">,</span> <span class="n">msg</span><span class="p">)</span>
+<span class="k">end</span>
+</pre></div>
+</div>
+<dl class="function">
+<dt id="TXN.Alert">
+<tt class="descclassname">TXN.</tt><tt class="descname">Alert</tt><big>(</big><em>txn</em>, <em>msg</em><big>)</big><a class="headerlink" href="#TXN.Alert" title="Permalink to this definition">¶</a></dt>
+<dd><table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>txn</strong> (<em>class_txn</em>) &#8211; The class txn object containing the data.</li>
+<li><strong>msg</strong> (<em>string</em>) &#8211; The log content.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">See:</th><td class="field-body"><p class="first last">TXN.log</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<div class="highlight-lua"><div class="highlight"><pre><span class="k">function</span> <span class="nf">Debug</span><span class="p">(</span><span class="n">txn</span><span class="p">,</span> <span class="n">msg</span><span class="p">)</span>
+  <span class="n">TXN</span><span class="p">.</span><span class="n">log</span><span class="p">(</span><span class="n">txn</span><span class="p">,</span> <span class="n">core</span><span class="p">.</span><span class="n">alert</span><span class="p">,</span> <span class="n">msg</span><span class="p">)</span>
+<span class="k">end</span>
+</pre></div>
+</div>
+<dl class="function">
+<dt id="TXN.get_priv">
+<tt class="descclassname">TXN.</tt><tt class="descname">get_priv</tt><big>(</big><em>txn</em><big>)</big><a class="headerlink" href="#TXN.get_priv" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return Lua data stored in the current transaction (with the <cite>TXN.set_priv()</cite>)
+function. If no data are stored, it returns a nil value.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>txn</strong> (<em>class_txn</em>) &#8211; The class txn object containing the data.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">the opaque data previsously stored, or nil if nothing is
+avalaible.</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="TXN.set_priv">
+<tt class="descclassname">TXN.</tt><tt class="descname">set_priv</tt><big>(</big><em>txn</em>, <em>data</em><big>)</big><a class="headerlink" href="#TXN.set_priv" title="Permalink to this definition">¶</a></dt>
+<dd><p>Store any data in the current HAProxy transaction. This action replace the
+old stored data.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first last simple">
+<li><strong>txn</strong> (<em>class_txn</em>) &#8211; The class txn object containing the data.</li>
+<li><strong>data</strong> (<em>opaque</em>) &#8211; The data which is stored in the transaction.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="TXN.set_var">
+<tt class="descclassname">TXN.</tt><tt class="descname">set_var</tt><big>(</big><em>TXN</em>, <em>var</em>, <em>value</em><big>)</big><a class="headerlink" href="#TXN.set_var" title="Permalink to this definition">¶</a></dt>
+<dd><p>Converts a Lua type in a HAProxy type and store it in a variable &lt;var&gt;.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first last simple">
+<li><strong>txn</strong> (<em>class_txn</em>) &#8211; The class txn object containing the data.</li>
+<li><strong>var</strong> (<em>string</em>) &#8211; The variable name according with the HAProxy variable syntax.</li>
+<li><strong>value</strong> (<em>opaque</em>) &#8211; The data which is stored in the variable.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="TXN.get_var">
+<tt class="descclassname">TXN.</tt><tt class="descname">get_var</tt><big>(</big><em>TXN</em>, <em>var</em><big>)</big><a class="headerlink" href="#TXN.get_var" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns data stored in the variable &lt;var&gt; converter in Lua type.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first last simple">
+<li><strong>txn</strong> (<em>class_txn</em>) &#8211; The class txn object containing the data.</li>
+<li><strong>var</strong> (<em>string</em>) &#8211; The variable name according with the HAProxy variable syntax.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="TXN.done">
+<tt class="descclassname">TXN.</tt><tt class="descname">done</tt><big>(</big><em>txn</em><big>)</big><a class="headerlink" href="#TXN.done" title="Permalink to this definition">¶</a></dt>
+<dd><p>This function terminates processing of the transaction and the associated
+session. It can be used when a critical error is detected or to terminate
+processing after some data have been returned to the client (eg: a redirect).</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first last simple">
+<li><strong>txn</strong> (<em>class_txn</em>) &#8211; The class txn object containing the data.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="TXN.set_loglevel">
+<tt class="descclassname">TXN.</tt><tt class="descname">set_loglevel</tt><big>(</big><em>txn</em>, <em>loglevel</em><big>)</big><a class="headerlink" href="#TXN.set_loglevel" title="Permalink to this definition">¶</a></dt>
+<dd><p>Is used to change the log level of the current request. The &#8220;loglevel&#8221; must
+be an integer between 0 and 7.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>txn</strong> (<em>class_txn</em>) &#8211; The class txn object containing the data.</li>
+<li><strong>loglevel</strong> (<em>integer</em>) &#8211; The required log level. This variable can be one of</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">See:</th><td class="field-body"><p class="first last">core.&lt;loglevel&gt;</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="TXN.set_tos">
+<tt class="descclassname">TXN.</tt><tt class="descname">set_tos</tt><big>(</big><em>txn</em>, <em>tos</em><big>)</big><a class="headerlink" href="#TXN.set_tos" title="Permalink to this definition">¶</a></dt>
+<dd><p>Is used to set the TOS or DSCP field value of packets sent to the client to
+the value passed in &#8220;tos&#8221; on platforms which support this.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first last simple">
+<li><strong>txn</strong> (<em>class_txn</em>) &#8211; The class txn object containing the data.</li>
+<li><strong>tos</strong> (<em>integer</em>) &#8211; The new TOS os DSCP.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="TXN.set_mark">
+<tt class="descclassname">TXN.</tt><tt class="descname">set_mark</tt><big>(</big><em>txn</em>, <em>mark</em><big>)</big><a class="headerlink" href="#TXN.set_mark" title="Permalink to this definition">¶</a></dt>
+<dd><p>Is used to set the Netfilter MARK on all packets sent to the client to the
+value passed in &#8220;mark&#8221; on platforms which support it.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first last simple">
+<li><strong>txn</strong> (<em>class_txn</em>) &#8211; The class txn object containing the data.</li>
+<li><strong>mark</strong> (<em>integer</em>) &#8211; The mark value.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+</div>
+<div class="section" id="socket-class">
+<span id="id6"></span><h1>Socket class<a class="headerlink" href="#socket-class" title="Permalink to this headline">¶</a></h1>
+<dl class="class">
+<dt id="Socket">
+<em class="property">class </em><tt class="descname">Socket</tt><big>(</big><big>)</big><a class="headerlink" href="#Socket" title="Permalink to this definition">¶</a></dt>
+<dd><p>This class must be compatible with the Lua Socket class. Only the &#8216;client&#8217;
+functions are available. See the Lua Socket documentation:</p>
+<p><a class="reference external" href="http://w3.impa.br/~diego/software/luasocket/tcp.html">http://w3.impa.br/~diego/software/luasocket/tcp.html</a></p>
+</dd></dl>
+
+<dl class="function">
+<dt id="Socket.close">
+<tt class="descclassname">Socket.</tt><tt class="descname">close</tt><big>(</big><em>socket</em><big>)</big><a class="headerlink" href="#Socket.close" title="Permalink to this definition">¶</a></dt>
+<dd><p>Closes a TCP object. The internal socket used by the object is closed and the
+local address to which the object was bound is made available to other
+applications. No further operations (except for further calls to the close
+method) are allowed on a closed Socket.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first last simple">
+<li><strong>socket</strong> (<em>class_socket</em>) &#8211; Is the manipulated Socket.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+<p>Note: It is important to close all used sockets once they are not needed,
+since, in many systems, each socket uses a file descriptor, which are limited
+system resources. Garbage-collected objects are automatically closed before
+destruction, though.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="Socket.connect">
+<tt class="descclassname">Socket.</tt><tt class="descname">connect</tt><big>(</big><em>socket</em>, <em>address</em><span class="optional">[</span>, <em>port</em><span class="optional">]</span><big>)</big><a class="headerlink" href="#Socket.connect" title="Permalink to this definition">¶</a></dt>
+<dd><p>Attempts to connect a socket object to a remote host.</p>
+<p>In case of error, the method returns nil followed by a string describing the
+error. In case of success, the method returns 1.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>socket</strong> (<em>class_socket</em>) &#8211; Is the manipulated Socket.</li>
+<li><strong>address</strong> (<em>string</em>) &#8211; can be an IP address or a host name. See below for more
+information.</li>
+<li><strong>port</strong> (<em>integer</em>) &#8211; must be an integer number in the range [1..64K].</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">1 or nil.</p>
+</td>
+</tr>
+</tbody>
+</table>
+<p>an address field extension permits to use the connect() function to connect to
+other stream than TCP. The syntax containing a simpleipv4 or ipv6 address is
+the basically expected format. This format requires the port.</p>
+<p>Other format accepted are a socket path like &#8220;/socket/path&#8221;, it permits to
+connect to a socket. abstract namespaces are supported with the prefix
+&#8220;abns&#64;&#8221;, and finaly a filedescriotr can be passed with the prefix &#8220;fd&#64;&#8221;.
+The prefix &#8220;ipv4&#64;&#8221;, &#8220;ipv6&#64;&#8221; and &#8220;unix&#64;&#8221; are also supported. The port can be
+passed int the string. The syntax &#8220;127.0.0.1:1234&#8221; is valid. in this case, the
+parameter <em>port</em> is ignored.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="Socket.connect_ssl">
+<tt class="descclassname">Socket.</tt><tt class="descname">connect_ssl</tt><big>(</big><em>socket</em>, <em>address</em>, <em>port</em><big>)</big><a class="headerlink" href="#Socket.connect_ssl" title="Permalink to this definition">¶</a></dt>
+<dd><p>Same behavior than the function socket:connect, but uses SSL.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>socket</strong> (<em>class_socket</em>) &#8211; Is the manipulated Socket.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">1 or nil.</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="Socket.getpeername">
+<tt class="descclassname">Socket.</tt><tt class="descname">getpeername</tt><big>(</big><em>socket</em><big>)</big><a class="headerlink" href="#Socket.getpeername" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns information about the remote side of a connected client object.</p>
+<p>Returns a string with the IP address of the peer, followed by the port number
+that peer is using for the connection. In case of error, the method returns
+nil.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>socket</strong> (<em>class_socket</em>) &#8211; Is the manipulated Socket.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">a string containing the server information.</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="Socket.getsockname">
+<tt class="descclassname">Socket.</tt><tt class="descname">getsockname</tt><big>(</big><em>socket</em><big>)</big><a class="headerlink" href="#Socket.getsockname" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns the local address information associated to the object.</p>
+<p>The method returns a string with local IP address and a number with the port.
+In case of error, the method returns nil.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>socket</strong> (<em>class_socket</em>) &#8211; Is the manipulated Socket.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">a string containing the client information.</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="Socket.receive">
+<tt class="descclassname">Socket.</tt><tt class="descname">receive</tt><big>(</big><em>socket</em><span class="optional">[</span>, <em>pattern</em><span class="optional">[</span>, <em>prefix</em><span class="optional">]</span><span class="optional">]</span><big>)</big><a class="headerlink" href="#Socket.receive" title="Permalink to this definition">¶</a></dt>
+<dd><p>Reads data from a client object, according to the specified read pattern.
+Patterns follow the Lua file I/O format, and the difference in performance
+between all patterns is negligible.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>socket</strong> (<em>class_socket</em>) &#8211; Is the manipulated Socket.</li>
+<li><strong>pattern</strong> (<em>string|integer</em>) &#8211; Describe what is required (see below).</li>
+<li><strong>prefix</strong> (<em>string</em>) &#8211; A string which will be prefix the returned data.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">a string containing the required data or nil.</p>
+</td>
+</tr>
+</tbody>
+</table>
+<p>Pattern can be any of the following:</p>
+<ul>
+<li><dl class="first docutils">
+<dt><strong>`*a`</strong>: reads from the socket until the connection is closed. No</dt>
+<dd><p class="first last">end-of-line translation is performed;</p>
+</dd>
+</dl>
+</li>
+<li><dl class="first docutils">
+<dt><strong>`*l`</strong>: reads a line of text from the Socket. The line is terminated by a</dt>
+<dd><p class="first last">LF character (ASCII 10), optionally preceded by a CR character
+(ASCII 13). The CR and LF characters are not included in the
+returned line.  In fact, all CR characters are ignored by the
+pattern. This is the default pattern.</p>
+</dd>
+</dl>
+</li>
+<li><dl class="first docutils">
+<dt><strong>number</strong>: causes the method to read a specified number of bytes from the</dt>
+<dd><p class="first last">Socket. Prefix is an optional string to be concatenated to the
+beginning of any received data before return.</p>
+</dd>
+</dl>
+</li>
+<li><p class="first"><strong>empty</strong>: If the pattern is left empty, the default option is <cite>*l</cite>.</p>
+</li>
+</ul>
+<p>If successful, the method returns the received pattern. In case of error, the
+method returns nil followed by an error message which can be the string
+&#8216;closed&#8217; in case the connection was closed before the transmission was
+completed or the string &#8216;timeout&#8217; in case there was a timeout during the
+operation. Also, after the error message, the function returns the partial
+result of the transmission.</p>
+<p>Important note: This function was changed severely. It used to support
+multiple patterns (but I have never seen this feature used) and now it
+doesn&#8217;t anymore.  Partial results used to be returned in the same way as
+successful results. This last feature violated the idea that all functions
+should return nil on error.  Thus it was changed too.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="Socket.send">
+<tt class="descclassname">Socket.</tt><tt class="descname">send</tt><big>(</big><em>socket</em>, <em>data</em><span class="optional">[</span>, <em>start</em><span class="optional">[</span>, <em>end</em><span class="optional">]</span><span class="optional">]</span><big>)</big><a class="headerlink" href="#Socket.send" title="Permalink to this definition">¶</a></dt>
+<dd><p>Sends data through client object.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>socket</strong> (<em>class_socket</em>) &#8211; Is the manipulated Socket.</li>
+<li><strong>data</strong> (<em>string</em>) &#8211; The data that will be sent.</li>
+<li><strong>start</strong> (<em>integer</em>) &#8211; The start position in the buffer of the data which will
+be sent.</li>
+<li><strong>end</strong> (<em>integer</em>) &#8211; The end position in the buffer of the data which will
+be sent.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">see below.</p>
+</td>
+</tr>
+</tbody>
+</table>
+<p>Data is the string to be sent. The optional arguments i and j work exactly
+like the standard string.sub Lua function to allow the selection of a
+substring to be sent.</p>
+<p>If successful, the method returns the index of the last byte within [start,
+end] that has been sent. Notice that, if start is 1 or absent, this is
+effectively the total number of bytes sent. In case of error, the method
+returns nil, followed by an error message, followed by the index of the last
+byte within [start, end] that has been sent. You might want to try again from
+the byte following that. The error message can be &#8216;closed&#8217; in case the
+connection was closed before the transmission was completed or the string
+&#8216;timeout&#8217; in case there was a timeout during the operation.</p>
+<p>Note: Output is not buffered. For small strings, it is always better to
+concatenate them in Lua (with the &#8216;..&#8217; operator) and send the result in one
+call instead of calling the method several times.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="Socket.setoption">
+<tt class="descclassname">Socket.</tt><tt class="descname">setoption</tt><big>(</big><em>socket</em>, <em>option</em><span class="optional">[</span>, <em>value</em><span class="optional">]</span><big>)</big><a class="headerlink" href="#Socket.setoption" title="Permalink to this definition">¶</a></dt>
+<dd><p>Just implemented for compatibility, this cal does nothing.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="Socket.settimeout">
+<tt class="descclassname">Socket.</tt><tt class="descname">settimeout</tt><big>(</big><em>socket</em>, <em>value</em><span class="optional">[</span>, <em>mode</em><span class="optional">]</span><big>)</big><a class="headerlink" href="#Socket.settimeout" title="Permalink to this definition">¶</a></dt>
+<dd><p>Changes the timeout values for the object. All I/O operations are blocking.
+That is, any call to the methods send, receive, and accept will block
+indefinitely, until the operation completes. The settimeout method defines a
+limit on the amount of time the I/O methods can block. When a timeout time
+has elapsed, the affected methods give up and fail with an error code.</p>
+<p>The amount of time to wait is specified as the value parameter, in seconds.</p>
+<p>The timeout modes are bot implemented, the only settable timeout is the
+inactivity time waiting for complete the internal buffer send or waiting for
+receive data.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first last simple">
+<li><strong>socket</strong> (<em>class_socket</em>) &#8211; Is the manipulated Socket.</li>
+<li><strong>value</strong> (<em>integer</em>) &#8211; The timeout value.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+</div>
+<div class="section" id="map-class">
+<span id="id7"></span><h1>Map class<a class="headerlink" href="#map-class" title="Permalink to this headline">¶</a></h1>
+<dl class="class">
+<dt id="Map">
+<em class="property">class </em><tt class="descname">Map</tt><big>(</big><big>)</big><a class="headerlink" href="#Map" title="Permalink to this definition">¶</a></dt>
+<dd><p>This class permits to do some lookup in HAProxy maps. The declared maps can
+be modified during the runtime throught the HAProxy management socket.</p>
+</dd></dl>
+
+<div class="highlight-lua"><div class="highlight"><pre><span class="n">default</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="s">usa&quot;</span>
+
+<span class="c1">-- Create and load map</span>
+<span class="n">geo</span> <span class="o">=</span> <span class="n">Map</span><span class="p">.</span><span class="n">new</span><span class="p">(</span><span class="s2">&quot;</span><span class="s">geo.map&quot;</span><span class="p">,</span> <span class="n">Map</span><span class="p">.</span><span class="n">ip</span><span class="p">);</span>
+
+<span class="c1">-- Create new fetch that returns the user country</span>
+<span class="n">core</span><span class="p">.</span><span class="n">register_fetches</span><span class="p">(</span><span class="s2">&quot;</span><span class="s">country&quot;</span><span class="p">,</span> <span class="k">function</span><span class="p">(</span><span class="n">txn</span><span class="p">)</span>
+  <span class="kd">local</span> <span class="n">src</span><span class="p">;</span>
+  <span class="kd">local</span> <span class="n">loc</span><span class="p">;</span>
+
+  <span class="n">src</span> <span class="o">=</span> <span class="n">txn</span><span class="p">.</span><span class="n">f</span><span class="p">:</span><span class="n">fhdr</span><span class="p">(</span><span class="s2">&quot;</span><span class="s">x-forwarded-for&quot;</span><span class="p">);</span>
+  <span class="k">if</span> <span class="p">(</span><span class="n">src</span> <span class="o">==</span> <span class="kc">nil</span><span class="p">)</span> <span class="k">then</span>
+    <span class="n">src</span> <span class="o">=</span> <span class="n">txn</span><span class="p">.</span><span class="n">f</span><span class="p">:</span><span class="n">src</span><span class="p">()</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">src</span> <span class="o">==</span> <span class="kc">nil</span><span class="p">)</span> <span class="k">then</span>
+      <span class="k">return</span> <span class="n">default</span><span class="p">;</span>
+    <span class="k">end</span>
+  <span class="k">end</span>
+
+  <span class="c1">-- Perform lookup</span>
+  <span class="n">loc</span> <span class="o">=</span> <span class="n">geo</span><span class="p">:</span><span class="n">lookup</span><span class="p">(</span><span class="n">src</span><span class="p">);</span>
+
+  <span class="k">if</span> <span class="p">(</span><span class="n">loc</span> <span class="o">==</span> <span class="kc">nil</span><span class="p">)</span> <span class="k">then</span>
+    <span class="k">return</span> <span class="n">default</span><span class="p">;</span>
+  <span class="k">end</span>
+
+  <span class="k">return</span> <span class="n">loc</span><span class="p">;</span>
+<span class="k">end</span><span class="p">);</span>
+</pre></div>
+</div>
+<dl class="attribute">
+<dt id="Map.int">
+<tt class="descclassname">Map.</tt><tt class="descname">int</tt><a class="headerlink" href="#Map.int" title="Permalink to this definition">¶</a></dt>
+<dd><p>See the HAProxy configuration.txt file, chapter &#8220;Using ACLs and fetching
+samples&#8221; ans subchapter &#8220;ACL basics&#8221; to understand this pattern matching
+method.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="Map.ip">
+<tt class="descclassname">Map.</tt><tt class="descname">ip</tt><a class="headerlink" href="#Map.ip" title="Permalink to this definition">¶</a></dt>
+<dd><p>See the HAProxy configuration.txt file, chapter &#8220;Using ACLs and fetching
+samples&#8221; ans subchapter &#8220;ACL basics&#8221; to understand this pattern matching
+method.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="Map.str">
+<tt class="descclassname">Map.</tt><tt class="descname">str</tt><a class="headerlink" href="#Map.str" title="Permalink to this definition">¶</a></dt>
+<dd><p>See the HAProxy configuration.txt file, chapter &#8220;Using ACLs and fetching
+samples&#8221; ans subchapter &#8220;ACL basics&#8221; to understand this pattern matching
+method.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="Map.beg">
+<tt class="descclassname">Map.</tt><tt class="descname">beg</tt><a class="headerlink" href="#Map.beg" title="Permalink to this definition">¶</a></dt>
+<dd><p>See the HAProxy configuration.txt file, chapter &#8220;Using ACLs and fetching
+samples&#8221; ans subchapter &#8220;ACL basics&#8221; to understand this pattern matching
+method.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="Map.sub">
+<tt class="descclassname">Map.</tt><tt class="descname">sub</tt><a class="headerlink" href="#Map.sub" title="Permalink to this definition">¶</a></dt>
+<dd><p>See the HAProxy configuration.txt file, chapter &#8220;Using ACLs and fetching
+samples&#8221; ans subchapter &#8220;ACL basics&#8221; to understand this pattern matching
+method.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="Map.dir">
+<tt class="descclassname">Map.</tt><tt class="descname">dir</tt><a class="headerlink" href="#Map.dir" title="Permalink to this definition">¶</a></dt>
+<dd><p>See the HAProxy configuration.txt file, chapter &#8220;Using ACLs and fetching
+samples&#8221; ans subchapter &#8220;ACL basics&#8221; to understand this pattern matching
+method.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="Map.dom">
+<tt class="descclassname">Map.</tt><tt class="descname">dom</tt><a class="headerlink" href="#Map.dom" title="Permalink to this definition">¶</a></dt>
+<dd><p>See the HAProxy configuration.txt file, chapter &#8220;Using ACLs and fetching
+samples&#8221; ans subchapter &#8220;ACL basics&#8221; to understand this pattern matching
+method.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="Map.end">
+<tt class="descclassname">Map.</tt><tt class="descname">end</tt><a class="headerlink" href="#Map.end" title="Permalink to this definition">¶</a></dt>
+<dd><p>See the HAProxy configuration.txt file, chapter &#8220;Using ACLs and fetching
+samples&#8221; ans subchapter &#8220;ACL basics&#8221; to understand this pattern matching
+method.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="Map.reg">
+<tt class="descclassname">Map.</tt><tt class="descname">reg</tt><a class="headerlink" href="#Map.reg" title="Permalink to this definition">¶</a></dt>
+<dd><p>See the HAProxy configuration.txt file, chapter &#8220;Using ACLs and fetching
+samples&#8221; ans subchapter &#8220;ACL basics&#8221; to understand this pattern matching
+method.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="Map.new">
+<tt class="descclassname">Map.</tt><tt class="descname">new</tt><big>(</big><em>file</em>, <em>method</em><big>)</big><a class="headerlink" href="#Map.new" title="Permalink to this definition">¶</a></dt>
+<dd><p>Creates and load a map.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>file</strong> (<em>string</em>) &#8211; Is the file containing the map.</li>
+<li><strong>method</strong> (<em>integer</em>) &#8211; Is the map pattern matching method. See the attributes
+of the Map class.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first">a class Map object.</p>
+</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">See:</th><td class="field-body"><p class="first last">The Map attributes.</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="Map.lookup">
+<tt class="descclassname">Map.</tt><tt class="descname">lookup</tt><big>(</big><em>map</em>, <em>str</em><big>)</big><a class="headerlink" href="#Map.lookup" title="Permalink to this definition">¶</a></dt>
+<dd><p>Perform a lookup in a map.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>map</strong> (<em>class_map</em>) &#8211; Is the class Map object.</li>
+<li><strong>str</strong> (<em>string</em>) &#8211; Is the string used as key.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">a string containing the result or nil if no match.</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="Map.slookup">
+<tt class="descclassname">Map.</tt><tt class="descname">slookup</tt><big>(</big><em>map</em>, <em>str</em><big>)</big><a class="headerlink" href="#Map.slookup" title="Permalink to this definition">¶</a></dt>
+<dd><p>Perform a lookup in a map.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>map</strong> (<em>class_map</em>) &#8211; Is the class Map object.</li>
+<li><strong>str</strong> (<em>string</em>) &#8211; Is the string used as key.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">a string containing the result or empty string if no match.</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+</div>
+<div class="section" id="applethttp-class">
+<span id="id8"></span><h1>AppletHTTP class<a class="headerlink" href="#applethttp-class" title="Permalink to this headline">¶</a></h1>
+<dl class="class">
+<dt id="AppletHTTP">
+<em class="property">class </em><tt class="descname">AppletHTTP</tt><big>(</big><big>)</big><a class="headerlink" href="#AppletHTTP" title="Permalink to this definition">¶</a></dt>
+<dd><p>This class is used with applets that requires the &#8216;http&#8217; mode. The http applet
+can be registered with the <em>core.register_service()</em> function. They are used
+for processing an http request like a server in back of HAProxy.</p>
+<p>This is an hello world sample code:</p>
+</dd></dl>
+
+<div class="highlight-lua"><div class="highlight"><pre><span class="n">core</span><span class="p">.</span><span class="n">register_service</span><span class="p">(</span><span class="s2">&quot;</span><span class="s">hello-world&quot;</span><span class="p">,</span> <span class="s2">&quot;</span><span class="s">http&quot;</span><span class="p">,</span> <span class="k">function</span><span class="p">(</span><span class="n">applet</span><span class="p">)</span>
+   <span class="kd">local</span> <span class="n">response</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="s">Hello World !&quot;</span>
+   <span class="n">applet</span><span class="p">:</span><span class="n">set_status</span><span class="p">(</span><span class="mi">200</span><span class="p">)</span>
+   <span class="n">applet</span><span class="p">:</span><span class="n">add_header</span><span class="p">(</span><span class="s2">&quot;</span><span class="s">content-length&quot;</span><span class="p">,</span> <span class="nb">string.len</span><span class="p">(</span><span class="n">response</span><span class="p">))</span>
+   <span class="n">applet</span><span class="p">:</span><span class="n">add_header</span><span class="p">(</span><span class="s2">&quot;</span><span class="s">content-type&quot;</span><span class="p">,</span> <span class="s2">&quot;</span><span class="s">text/plain&quot;</span><span class="p">)</span>
+   <span class="n">applet</span><span class="p">:</span><span class="n">start_response</span><span class="p">()</span>
+   <span class="n">applet</span><span class="p">:</span><span class="n">send</span><span class="p">(</span><span class="n">response</span><span class="p">)</span>
+<span class="k">end</span><span class="p">)</span>
+</pre></div>
+</div>
+<dl class="attribute">
+<dt id="AppletHTTP.c">
+<tt class="descclassname">AppletHTTP.</tt><tt class="descname">c</tt><a class="headerlink" href="#AppletHTTP.c" title="Permalink to this definition">¶</a></dt>
+<dd><table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">A <a class="reference internal" href="#converters-class"><em>Converters class</em></a></td>
+</tr>
+</tbody>
+</table>
+<p>This attribute contains a Converters class object.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="AppletHTTP.sc">
+<tt class="descclassname">AppletHTTP.</tt><tt class="descname">sc</tt><a class="headerlink" href="#AppletHTTP.sc" title="Permalink to this definition">¶</a></dt>
+<dd><table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">A <a class="reference internal" href="#converters-class"><em>Converters class</em></a></td>
+</tr>
+</tbody>
+</table>
+<p>This attribute contains a Converters class object. The
+functions of this object returns always a string.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="AppletHTTP.f">
+<tt class="descclassname">AppletHTTP.</tt><tt class="descname">f</tt><a class="headerlink" href="#AppletHTTP.f" title="Permalink to this definition">¶</a></dt>
+<dd><table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">A <a class="reference internal" href="#fetches-class"><em>Fetches class</em></a></td>
+</tr>
+</tbody>
+</table>
+<p>This attribute contains a Fetches class object. Note that the
+applet execution place cannot access to a valid HAProxy core HTTP
+transaction, so some sample fecthes related to the HTTP dependant
+values (hdr, path, ...) are not available.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="AppletHTTP.sf">
+<tt class="descclassname">AppletHTTP.</tt><tt class="descname">sf</tt><a class="headerlink" href="#AppletHTTP.sf" title="Permalink to this definition">¶</a></dt>
+<dd><table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">A <a class="reference internal" href="#fetches-class"><em>Fetches class</em></a></td>
+</tr>
+</tbody>
+</table>
+<p>This attribute contains a Fetches class object. The functions of
+this object returns always a string. Note that the applet
+execution place cannot access to a valid HAProxy core HTTP
+transaction, so some sample fecthes related to the HTTP dependant
+values (hdr, path, ...) are not available.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="AppletHTTP.method">
+<tt class="descclassname">AppletHTTP.</tt><tt class="descname">method</tt><a class="headerlink" href="#AppletHTTP.method" title="Permalink to this definition">¶</a></dt>
+<dd><table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">string</td>
+</tr>
+</tbody>
+</table>
+<p>The attribute method returns a string containing the HTTP
+method.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="AppletHTTP.version">
+<tt class="descclassname">AppletHTTP.</tt><tt class="descname">version</tt><a class="headerlink" href="#AppletHTTP.version" title="Permalink to this definition">¶</a></dt>
+<dd><table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">string</td>
+</tr>
+</tbody>
+</table>
+<p>The attribute version, returns a string containing the HTTP
+request version.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="AppletHTTP.path">
+<tt class="descclassname">AppletHTTP.</tt><tt class="descname">path</tt><a class="headerlink" href="#AppletHTTP.path" title="Permalink to this definition">¶</a></dt>
+<dd><table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">string</td>
+</tr>
+</tbody>
+</table>
+<p>The attribute path returns a string containing the HTTP
+request path.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="AppletHTTP.qs">
+<tt class="descclassname">AppletHTTP.</tt><tt class="descname">qs</tt><a class="headerlink" href="#AppletHTTP.qs" title="Permalink to this definition">¶</a></dt>
+<dd><table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">string</td>
+</tr>
+</tbody>
+</table>
+<p>The attribute qs returns a string containing the HTTP
+request query string.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="AppletHTTP.length">
+<tt class="descclassname">AppletHTTP.</tt><tt class="descname">length</tt><a class="headerlink" href="#AppletHTTP.length" title="Permalink to this definition">¶</a></dt>
+<dd><table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">integer</td>
+</tr>
+</tbody>
+</table>
+<p>The attribute length returns an integer containing the HTTP
+body length.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="AppletHTTP.headers">
+<tt class="descclassname">AppletHTTP.</tt><tt class="descname">headers</tt><a class="headerlink" href="#AppletHTTP.headers" title="Permalink to this definition">¶</a></dt>
+<dd><table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">array</td>
+</tr>
+</tbody>
+</table>
+<p>The attribute headers returns an array containing the HTTP
+headers. The header names are always in lower case. As the header name can be
+encountered more than once in each request, the value is indexed with 0 as
+first index value. The array have this form:</p>
+</dd></dl>
+
+<div class="highlight-lua"><div class="highlight"><pre><span class="n">AppletHTTP</span><span class="p">.</span><span class="n">headers</span><span class="p">[</span><span class="s1">&#39;</span><span class="s">&lt;header-name&gt;&#39;</span><span class="p">][</span><span class="o">&lt;</span><span class="n">header</span><span class="o">-</span><span class="n">index</span><span class="o">&gt;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="s">&lt;header-value&gt;&quot;</span>
+
+<span class="n">AppletHTTP</span><span class="p">.</span><span class="n">headers</span><span class="p">[</span><span class="s2">&quot;</span><span class="s">host&quot;</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="s">www.test.com&quot;</span>
+<span class="n">AppletHTTP</span><span class="p">.</span><span class="n">headers</span><span class="p">[</span><span class="s2">&quot;</span><span class="s">accept&quot;</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="s">audio/basic q=1&quot;</span>
+<span class="n">AppletHTTP</span><span class="p">.</span><span class="n">headers</span><span class="p">[</span><span class="s2">&quot;</span><span class="s">accept&quot;</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="s">audio/*, q=0.2&quot;</span>
+<span class="n">AppletHTTP</span><span class="p">.</span><span class="n">headers</span><span class="p">[</span><span class="s2">&quot;</span><span class="s">accept&quot;</span><span class="p">][</span><span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="s">*/*, q=0.1&quot;</span>
+</pre></div>
+</div>
+<dl class="attribute">
+<dt>
+<tt class="descclassname">AppletHTTP.</tt><tt class="descname">headers</tt></dt>
+<dd><p>Contains an array containing all the request headers.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="AppletHTTP.set_status">
+<tt class="descclassname">AppletHTTP.</tt><tt class="descname">set_status</tt><big>(</big><em>applet</em>, <em>code</em><big>)</big><a class="headerlink" href="#AppletHTTP.set_status" title="Permalink to this definition">¶</a></dt>
+<dd><p>This function sets the HTTP status code for the response. The allowed code are
+from 100 to 599.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first last simple">
+<li><strong>applet</strong> (<em>class_AppletHTTP</em>) &#8211; An <a class="reference internal" href="#applethttp-class"><em>AppletHTTP class</em></a></li>
+<li><strong>code</strong> (<em>integer</em>) &#8211; the status code returned to the client.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="AppletHTTP.add_header">
+<tt class="descclassname">AppletHTTP.</tt><tt class="descname">add_header</tt><big>(</big><em>applet</em>, <em>name</em>, <em>value</em><big>)</big><a class="headerlink" href="#AppletHTTP.add_header" title="Permalink to this definition">¶</a></dt>
+<dd><p>This function add an header in the response. Duplicated headers are not
+collapsed. The special header <em>content-length</em> is used to determinate the
+response length. If it not exists, a <em>transfer-encoding: chunked</em> is set, and
+all the write from the funcion <em>AppletHTTP:send()</em> become a chunk.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first last simple">
+<li><strong>applet</strong> (<em>class_AppletHTTP</em>) &#8211; An <a class="reference internal" href="#applethttp-class"><em>AppletHTTP class</em></a></li>
+<li><strong>name</strong> (<em>string</em>) &#8211; the header name</li>
+<li><strong>value</strong> (<em>string</em>) &#8211; the header value</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="AppletHTTP.start_response">
+<tt class="descclassname">AppletHTTP.</tt><tt class="descname">start_response</tt><big>(</big><em>applet</em><big>)</big><a class="headerlink" href="#AppletHTTP.start_response" title="Permalink to this definition">¶</a></dt>
+<dd><p>This function indicates to the HTTP engine that it can process and send the
+response headers. After this called we cannot add headers to the response; We
+cannot use the <em>AppletHTTP:send()</em> function if the
+<em>AppletHTTP:start_response()</em> is not called.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first last simple">
+<li><strong>applet</strong> (<em>class_AppletHTTP</em>) &#8211; An <a class="reference internal" href="#applethttp-class"><em>AppletHTTP class</em></a></li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="AppletHTTP.getline">
+<tt class="descclassname">AppletHTTP.</tt><tt class="descname">getline</tt><big>(</big><em>applet</em><big>)</big><a class="headerlink" href="#AppletHTTP.getline" title="Permalink to this definition">¶</a></dt>
+<dd><p>This function returns a string containing one line from the http body. If the
+data returned doesn&#8217;t contains a final &#8216;\n&#8217; its assumed than its the last
+available data before the end of stream.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>applet</strong> (<em>class_AppletHTTP</em>) &#8211; An <a class="reference internal" href="#applethttp-class"><em>AppletHTTP class</em></a></li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">a string. The string can be empty if we reach the end of the stream.</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="AppletHTTP.receive">
+<tt class="descclassname">AppletHTTP.</tt><tt class="descname">receive</tt><big>(</big><em>applet</em><span class="optional">[</span>, <em>size</em><span class="optional">]</span><big>)</big><a class="headerlink" href="#AppletHTTP.receive" title="Permalink to this definition">¶</a></dt>
+<dd><p>Reads data from the HTTP body, according to the specified read <em>size</em>. If the
+<em>size</em> is missing, the function tries to read all the content of the stream
+until the end. If the <em>size</em> is bigger than the http body, it returns the
+amount of data avalaible.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>applet</strong> (<em>class_AppletHTTP</em>) &#8211; An <a class="reference internal" href="#applethttp-class"><em>AppletHTTP class</em></a></li>
+<li><strong>size</strong> (<em>integer</em>) &#8211; the required read size.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">always return a string,the string can be empty is the connexion is
+closed.</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="AppletHTTP.send">
+<tt class="descclassname">AppletHTTP.</tt><tt class="descname">send</tt><big>(</big><em>applet</em>, <em>msg</em><big>)</big><a class="headerlink" href="#AppletHTTP.send" title="Permalink to this definition">¶</a></dt>
+<dd><p>Send the message <em>msg</em> on the http request body.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first last simple">
+<li><strong>applet</strong> (<em>class_AppletHTTP</em>) &#8211; An <a class="reference internal" href="#applethttp-class"><em>AppletHTTP class</em></a></li>
+<li><strong>msg</strong> (<em>string</em>) &#8211; the message to send.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+</div>
+<div class="section" id="applettcp-class">
+<span id="id9"></span><h1>AppletTCP class<a class="headerlink" href="#applettcp-class" title="Permalink to this headline">¶</a></h1>
+<dl class="class">
+<dt id="AppletTCP">
+<em class="property">class </em><tt class="descname">AppletTCP</tt><big>(</big><big>)</big><a class="headerlink" href="#AppletTCP" title="Permalink to this definition">¶</a></dt>
+<dd><p>This class is used with applets that requires the &#8216;tcp&#8217; mode. The tcp applet
+can be registered with the <em>core.register_service()</em> function. They are used
+for processing a tcp stream like a server in back of HAProxy.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="AppletTCP.c">
+<tt class="descclassname">AppletTCP.</tt><tt class="descname">c</tt><a class="headerlink" href="#AppletTCP.c" title="Permalink to this definition">¶</a></dt>
+<dd><table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">A <a class="reference internal" href="#converters-class"><em>Converters class</em></a></td>
+</tr>
+</tbody>
+</table>
+<p>This attribute contains a Converters class object.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="AppletTCP.sc">
+<tt class="descclassname">AppletTCP.</tt><tt class="descname">sc</tt><a class="headerlink" href="#AppletTCP.sc" title="Permalink to this definition">¶</a></dt>
+<dd><table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">A <a class="reference internal" href="#converters-class"><em>Converters class</em></a></td>
+</tr>
+</tbody>
+</table>
+<p>This attribute contains a Converters class object. The
+functions of this object returns always a string.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="AppletTCP.f">
+<tt class="descclassname">AppletTCP.</tt><tt class="descname">f</tt><a class="headerlink" href="#AppletTCP.f" title="Permalink to this definition">¶</a></dt>
+<dd><table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">A <a class="reference internal" href="#fetches-class"><em>Fetches class</em></a></td>
+</tr>
+</tbody>
+</table>
+<p>This attribute contains a Fetches class object.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="AppletTCP.sf">
+<tt class="descclassname">AppletTCP.</tt><tt class="descname">sf</tt><a class="headerlink" href="#AppletTCP.sf" title="Permalink to this definition">¶</a></dt>
+<dd><table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">A <a class="reference internal" href="#fetches-class"><em>Fetches class</em></a></td>
+</tr>
+</tbody>
+</table>
+<p>This attribute contains a Fetches class object.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="AppletTCP.getline">
+<tt class="descclassname">AppletTCP.</tt><tt class="descname">getline</tt><big>(</big><em>applet</em><big>)</big><a class="headerlink" href="#AppletTCP.getline" title="Permalink to this definition">¶</a></dt>
+<dd><p>This function returns a string containing one line from the stream. If the
+data returned doesn&#8217;t contains a final &#8216;\n&#8217; its assumed than its the last
+available data before the end of stream.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>applet</strong> (<em>class_AppletTCP</em>) &#8211; An <a class="reference internal" href="#applettcp-class"><em>AppletTCP class</em></a></li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">a string. The string can be empty if we reach the end of the stream.</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="AppletTCP.receive">
+<tt class="descclassname">AppletTCP.</tt><tt class="descname">receive</tt><big>(</big><em>applet</em><span class="optional">[</span>, <em>size</em><span class="optional">]</span><big>)</big><a class="headerlink" href="#AppletTCP.receive" title="Permalink to this definition">¶</a></dt>
+<dd><p>Reads data from the TCP stream, according to the specified read <em>size</em>. If the
+<em>size</em> is missing, the function tries to read all the content of the stream
+until the end.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first simple">
+<li><strong>applet</strong> (<em>class_AppletTCP</em>) &#8211; An <a class="reference internal" href="#applettcp-class"><em>AppletTCP class</em></a></li>
+<li><strong>size</strong> (<em>integer</em>) &#8211; the required read size.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">always return a string,the string can be empty is the connexion is
+closed.</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="AppletTCP.send">
+<tt class="descclassname">AppletTCP.</tt><tt class="descname">send</tt><big>(</big><em>appletmsg</em><big>)</big><a class="headerlink" href="#AppletTCP.send" title="Permalink to this definition">¶</a></dt>
+<dd><p>Send the message on the stream.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Arguments:</th><td class="field-body"><ul class="first last simple">
+<li><strong>applet</strong> (<em>class_AppletTCP</em>) &#8211; An <a class="reference internal" href="#applettcp-class"><em>AppletTCP class</em></a></li>
+<li><strong>msg</strong> (<em>string</em>) &#8211; the message to send.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+</div>
+<div class="section" id="external-lua-libraries">
+<h1>External Lua libraries<a class="headerlink" href="#external-lua-libraries" title="Permalink to this headline">¶</a></h1>
+<p>A lot of useful lua libraries can be found here:</p>
+<ul class="simple">
+<li><a class="reference external" href="https://lua-toolbox.com/">https://lua-toolbox.com/</a></li>
+</ul>
+<p>Redis acces:</p>
+<ul class="simple">
+<li><a class="reference external" href="https://github.com/nrk/redis-lua">https://github.com/nrk/redis-lua</a></li>
+</ul>
+<p>This is an example about the usage of the Redis library with HAProxy. Note that
+each call of any function of this library can throw an error if the socket
+connection fails.</p>
+<div class="highlight-lua"><div class="highlight"><pre><span class="c1">-- load the redis library</span>
+<span class="kd">local</span> <span class="n">redis</span> <span class="o">=</span> <span class="nb">require</span><span class="p">(</span><span class="s2">&quot;</span><span class="s">redis&quot;</span><span class="p">);</span>
+
+<span class="k">function</span> <span class="nf">do_something</span><span class="p">(</span><span class="n">txn</span><span class="p">)</span>
+
+   <span class="c1">-- create and connect new tcp socket</span>
+   <span class="kd">local</span> <span class="n">tcp</span> <span class="o">=</span> <span class="n">core</span><span class="p">.</span><span class="n">tcp</span><span class="p">();</span>
+   <span class="n">tcp</span><span class="p">:</span><span class="n">settimeout</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span>
+   <span class="n">tcp</span><span class="p">:</span><span class="n">connect</span><span class="p">(</span><span class="s2">&quot;</span><span class="s">127.0.0.1&quot;</span><span class="p">,</span> <span class="mi">6379</span><span class="p">);</span>
+
+   <span class="c1">-- use the redis library with this new socket</span>
+   <span class="kd">local</span> <span class="n">client</span> <span class="o">=</span> <span class="n">redis</span><span class="p">.</span><span class="n">connect</span><span class="p">({</span><span class="n">socket</span><span class="o">=</span><span class="n">tcp</span><span class="p">});</span>
+   <span class="n">client</span><span class="p">:</span><span class="n">ping</span><span class="p">();</span>
+
+<span class="k">end</span>
+</pre></div>
+</div>
+<p>OpenSSL:</p>
+<ul class="simple">
+<li><a class="reference external" href="http://mkottman.github.io/luacrypto/index.html">http://mkottman.github.io/luacrypto/index.html</a></li>
+<li><a class="reference external" href="https://github.com/brunoos/luasec/wiki">https://github.com/brunoos/luasec/wiki</a></li>
+</ul>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+  <h3><a href="#">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">How Lua runs in HAProxy</a><ul>
+<li><a class="reference internal" href="#haproxy-lua-running-contexts">HAProxy Lua running contexts</a></li>
+<li><a class="reference internal" href="#haproxy-lua-hello-world">HAProxy Lua Hello world</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#core-class">Core class</a></li>
+<li><a class="reference internal" href="#fetches-class">Fetches class</a></li>
+<li><a class="reference internal" href="#converters-class">Converters class</a></li>
+<li><a class="reference internal" href="#channel-class">Channel class</a></li>
+<li><a class="reference internal" href="#http-class">HTTP class</a></li>
+<li><a class="reference internal" href="#txn-class">TXN class</a></li>
+<li><a class="reference internal" href="#socket-class">Socket class</a></li>
+<li><a class="reference internal" href="#map-class">Map class</a></li>
+<li><a class="reference internal" href="#applethttp-class">AppletHTTP class</a></li>
+<li><a class="reference internal" href="#applettcp-class">AppletTCP class</a></li>
+<li><a class="reference internal" href="#external-lua-libraries">External Lua libraries</a></li>
+</ul>
+
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/index.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li><a href="#">haproxy-lua 1.0 documentation</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2015, Thierry FOURNIER.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.2.3.
+    </div>
+  </body>
+</html>
