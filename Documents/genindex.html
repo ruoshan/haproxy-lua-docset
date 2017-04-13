@@ -9,7 +9,7 @@
     
     <title>Index &mdash; haproxy-lua 1.0 documentation</title>
     
-    <link rel="stylesheet" href="_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="_static/classic.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     
     <script type="text/javascript">
@@ -26,21 +26,21 @@
     <script type="text/javascript" src="_static/doctools.js"></script>
     <link rel="top" title="haproxy-lua 1.0 documentation" href="index.html" /> 
   </head>
-  <body>
-    <div class="related">
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
           <a href="#" title="General Index"
              accesskey="I">index</a></li>
-        <li><a href="index.html">haproxy-lua 1.0 documentation</a> &raquo;</li> 
+        <li class="nav-item nav-item-0"><a href="index.html">haproxy-lua 1.0 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
     <div class="document">
       <div class="documentwrapper">
         <div class="bodywrapper">
-          <div class="body">
+          <div class="body" role="main">
             
 
 <h1 id="index">Index</h1>
@@ -50,7 +50,9 @@
  | <a href="#C"><strong>C</strong></a>
  | <a href="#F"><strong>F</strong></a>
  | <a href="#H"><strong>H</strong></a>
+ | <a href="#L"><strong>L</strong></a>
  | <a href="#M"><strong>M</strong></a>
+ | <a href="#P"><strong>P</strong></a>
  | <a href="#S"><strong>S</strong></a>
  | <a href="#T"><strong>T</strong></a>
  
@@ -75,11 +77,19 @@
   </dt>
 
       
+  <dt><a href="index.html#AppletHTTP.get_priv">AppletHTTP.get_priv() (AppletHTTP method)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#AppletHTTP.get_var">AppletHTTP.get_var() (AppletHTTP method)</a>
+  </dt>
+
+      
   <dt><a href="index.html#AppletHTTP.getline">AppletHTTP.getline() (AppletHTTP method)</a>
   </dt>
 
       
-  <dt><a href="index.html#AppletHTTP.headers">AppletHTTP.headers (AppletHTTP attribute)</a>, <a href="index.html#AppletHTTP.headers">[1]</a>
+  <dt><a href="index.html#AppletHTTP.headers">AppletHTTP.headers (AppletHTTP attribute)</a>
   </dt>
 
       
@@ -110,18 +120,30 @@
   <dt><a href="index.html#AppletHTTP.send">AppletHTTP.send() (AppletHTTP method)</a>
   </dt>
 
-  </dl></td>
-  <td style="width: 33%" valign="top"><dl>
+      
+  <dt><a href="index.html#AppletHTTP.set_priv">AppletHTTP.set_priv() (AppletHTTP method)</a>
+  </dt>
+
       
   <dt><a href="index.html#AppletHTTP.set_status">AppletHTTP.set_status() (AppletHTTP method)</a>
   </dt>
 
+      
+  <dt><a href="index.html#AppletHTTP.set_var">AppletHTTP.set_var() (AppletHTTP method)</a>
+  </dt>
+
+  </dl></td>
+  <td style="width: 33%" valign="top"><dl>
       
   <dt><a href="index.html#AppletHTTP.sf">AppletHTTP.sf (AppletHTTP attribute)</a>
   </dt>
 
       
   <dt><a href="index.html#AppletHTTP.start_response">AppletHTTP.start_response() (AppletHTTP method)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#AppletHTTP.unset_var">AppletHTTP.unset_var() (AppletHTTP method)</a>
   </dt>
 
       
@@ -141,6 +163,14 @@
   </dt>
 
       
+  <dt><a href="index.html#AppletTCP.get_priv">AppletTCP.get_priv() (AppletTCP method)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#AppletTCP.get_var">AppletTCP.get_var() (AppletTCP method)</a>
+  </dt>
+
+      
   <dt><a href="index.html#AppletTCP.getline">AppletTCP.getline() (AppletTCP method)</a>
   </dt>
 
@@ -157,7 +187,19 @@
   </dt>
 
       
+  <dt><a href="index.html#AppletTCP.set_priv">AppletTCP.set_priv() (AppletTCP method)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#AppletTCP.set_var">AppletTCP.set_var() (AppletTCP method)</a>
+  </dt>
+
+      
   <dt><a href="index.html#AppletTCP.sf">AppletTCP.sf (AppletTCP attribute)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#AppletTCP.unset_var">AppletTCP.unset_var() (AppletTCP method)</a>
   </dt>
 
   </dl></td>
@@ -199,11 +241,27 @@
   </dt>
 
       
+  <dt><a href="index.html#Channel.is_full">Channel.is_full() (Channel method)</a>
+  </dt>
+
+      
   <dt><a href="index.html#Channel.send">Channel.send() (Channel method)</a>
   </dt>
 
       
   <dt><a href="index.html#Channel.set">Channel.set() (Channel method)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#Concat">Concat() (class)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#Concat.add">Concat.add() (Concat method)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#Concat.dump">Concat.dump() (Concat method)</a>
   </dt>
 
       
@@ -224,6 +282,14 @@
 
       
   <dt><a href="index.html#core.Alert">core.Alert() (core method)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#core.asctime_date">core.asctime_date() (core method)</a>, <a href="index.html#core.asctime_date">[1]</a>
+  </dt>
+
+      
+  <dt><a href="index.html#core.concat">core.concat() (core method)</a>
   </dt>
 
       
@@ -250,14 +316,26 @@
   <dt><a href="index.html#core.done">core.done() (core method)</a>
   </dt>
 
-  </dl></td>
-  <td style="width: 33%" valign="top"><dl>
       
   <dt><a href="index.html#core.emerg">core.emerg (core attribute)</a>
   </dt>
 
       
   <dt><a href="index.html#core.err">core.err (core attribute)</a>
+  </dt>
+
+  </dl></td>
+  <td style="width: 33%" valign="top"><dl>
+      
+  <dt><a href="index.html#core.get_info">core.get_info() (core method)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#core.http_date">core.http_date() (core method)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#core.imf_date">core.imf_date() (core method)</a>
   </dt>
 
       
@@ -273,6 +351,10 @@
   </dt>
 
       
+  <dt><a href="index.html#core.match_addr">core.match_addr() (core method)</a>
+  </dt>
+
+      
   <dt><a href="index.html#core.msleep">core.msleep() (core method)</a>
   </dt>
 
@@ -281,7 +363,23 @@
   </dt>
 
       
+  <dt><a href="index.html#core.now">core.now() (core method)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#core.parse_addr">core.parse_addr() (core method)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#core.proxies">core.proxies (core attribute)</a>, <a href="index.html#core.proxies">[1]</a>
+  </dt>
+
+      
   <dt><a href="index.html#core.register_action">core.register_action() (core method)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#core.register_cli">core.register_cli() (core method)</a>
   </dt>
 
       
@@ -305,6 +403,10 @@
   </dt>
 
       
+  <dt><a href="index.html#core.rfc850_date">core.rfc850_date() (core method)</a>, <a href="index.html#core.rfc850_date">[1]</a>
+  </dt>
+
+      
   <dt><a href="index.html#core.set_map">core.set_map() (core method)</a>
   </dt>
 
@@ -318,6 +420,10 @@
 
       
   <dt><a href="index.html#core.tcp">core.tcp() (core method)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#core.tokenize">core.tokenize() (core method)</a>
   </dt>
 
       
@@ -369,10 +475,6 @@
   </dt>
 
       
-  <dt><a href="index.html#HTTP.req_replace_value">HTTP.req_replace_value() (HTTP method)</a>
-  </dt>
-
-      
   <dt><a href="index.html#HTTP.req_set_header">HTTP.req_set_header() (HTTP method)</a>
   </dt>
 
@@ -411,15 +513,21 @@
   </dt>
 
       
-  <dt><a href="index.html#HTTP.res_replace_value">HTTP.res_replace_value() (HTTP method)</a>
-  </dt>
-
-      
   <dt><a href="index.html#HTTP.res_set_header">HTTP.res_set_header() (HTTP method)</a>
   </dt>
 
       
   <dt><a href="index.html#HTTP.res_set_status">HTTP.res_set_status() (HTTP method)</a>
+  </dt>
+
+  </dl></td>
+</tr></table>
+
+<h2 id="L">L</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%" valign="top"><dl>
+      
+  <dt><a href="index.html#Listener.get_stats">Listener.get_stats() (Listener method)</a>
   </dt>
 
   </dl></td>
@@ -433,31 +541,43 @@
   </dt>
 
       
-  <dt><a href="index.html#Map.beg">Map.beg (Map attribute)</a>
+  <dt><a href="index.html#Map._beg">Map._beg (Map attribute)</a>
   </dt>
 
       
-  <dt><a href="index.html#Map.dir">Map.dir (Map attribute)</a>
+  <dt><a href="index.html#Map._dir">Map._dir (Map attribute)</a>
   </dt>
 
       
-  <dt><a href="index.html#Map.dom">Map.dom (Map attribute)</a>
+  <dt><a href="index.html#Map._dom">Map._dom (Map attribute)</a>
   </dt>
 
       
-  <dt><a href="index.html#Map.end">Map.end (Map attribute)</a>
+  <dt><a href="index.html#Map._end">Map._end (Map attribute)</a>
   </dt>
 
       
-  <dt><a href="index.html#Map.int">Map.int (Map attribute)</a>
+  <dt><a href="index.html#Map._int">Map._int (Map attribute)</a>
   </dt>
 
       
-  <dt><a href="index.html#Map.ip">Map.ip (Map attribute)</a>
+  <dt><a href="index.html#Map._ip">Map._ip (Map attribute)</a>
   </dt>
 
   </dl></td>
   <td style="width: 33%" valign="top"><dl>
+      
+  <dt><a href="index.html#Map._reg">Map._reg (Map attribute)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#Map._str">Map._str (Map attribute)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#Map._sub">Map._sub (Map attribute)</a>
+  </dt>
+
       
   <dt><a href="index.html#Map.lookup">Map.lookup() (Map method)</a>
   </dt>
@@ -467,19 +587,55 @@
   </dt>
 
       
-  <dt><a href="index.html#Map.reg">Map.reg (Map attribute)</a>
-  </dt>
-
-      
   <dt><a href="index.html#Map.slookup">Map.slookup() (Map method)</a>
   </dt>
 
+  </dl></td>
+</tr></table>
+
+<h2 id="P">P</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%" valign="top"><dl>
       
-  <dt><a href="index.html#Map.str">Map.str (Map attribute)</a>
+  <dt><a href="index.html#Proxy">Proxy() (class)</a>
   </dt>
 
       
-  <dt><a href="index.html#Map.sub">Map.sub (Map attribute)</a>
+  <dt><a href="index.html#Proxy.get_cap">Proxy.get_cap() (Proxy method)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#Proxy.get_mode">Proxy.get_mode() (Proxy method)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#Proxy.get_stats">Proxy.get_stats() (Proxy method)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#Proxy.listeners">Proxy.listeners (Proxy attribute)</a>
+  </dt>
+
+  </dl></td>
+  <td style="width: 33%" valign="top"><dl>
+      
+  <dt><a href="index.html#Proxy.pause">Proxy.pause() (Proxy method)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#Proxy.resume">Proxy.resume() (Proxy method)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#Proxy.servers">Proxy.servers (Proxy attribute)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#Proxy.shut_bcksess">Proxy.shut_bcksess() (Proxy method)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#Proxy.stop">Proxy.stop() (Proxy method)</a>
   </dt>
 
   </dl></td>
@@ -488,6 +644,84 @@
 <h2 id="S">S</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%" valign="top"><dl>
+      
+  <dt><a href="index.html#Server.agent_disable">Server.agent_disable() (Server method)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#Server.agent_enable">Server.agent_enable() (Server method)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#Server.agent_force_down">Server.agent_force_down() (Server method)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#Server.agent_force_up">Server.agent_force_up() (Server method)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#Server.check_disable">Server.check_disable() (Server method)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#Server.check_enable">Server.check_enable() (Server method)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#Server.check_force_down">Server.check_force_down() (Server method)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#Server.check_force_nolb">Server.check_force_nolb() (Server method)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#Server.check_force_up">Server.check_force_up() (Server method)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#Server.get_addr">Server.get_addr() (Server method)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#Server.get_stats">Server.get_stats() (Server method)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#Server.get_weight">Server.get_weight() (Server method)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#Server.is_draining">Server.is_draining() (Server method)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#Server.set_addr">Server.set_addr() (Server method)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#Server.set_drain">Server.set_drain() (Server method)</a>
+  </dt>
+
+  </dl></td>
+  <td style="width: 33%" valign="top"><dl>
+      
+  <dt><a href="index.html#Server.set_maint">Server.set_maint() (Server method)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#Server.set_ready">Server.set_ready() (Server method)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#Server.set_weight">Server.set_weight() (Server method)</a>
+  </dt>
+
+      
+  <dt><a href="index.html#Server.shut_sess">Server.shut_sess() (Server method)</a>
+  </dt>
+
       
   <dt><a href="index.html#Socket">Socket() (class)</a>
   </dt>
@@ -508,8 +742,6 @@
   <dt><a href="index.html#Socket.getpeername">Socket.getpeername() (Socket method)</a>
   </dt>
 
-  </dl></td>
-  <td style="width: 33%" valign="top"><dl>
       
   <dt><a href="index.html#Socket.getsockname">Socket.getsockname() (Socket method)</a>
   </dt>
@@ -580,12 +812,12 @@
   <dt><a href="index.html#TXN.Info">TXN.Info() (TXN method)</a>
   </dt>
 
-  </dl></td>
-  <td style="width: 33%" valign="top"><dl>
       
   <dt><a href="index.html#TXN.log">TXN.log() (TXN method)</a>
   </dt>
 
+  </dl></td>
+  <td style="width: 33%" valign="top"><dl>
       
   <dt><a href="index.html#TXN.req">TXN.req (TXN attribute)</a>
   </dt>
@@ -623,6 +855,10 @@
   </dt>
 
       
+  <dt><a href="index.html#TXN.unset_var">TXN.unset_var() (TXN method)</a>
+  </dt>
+
+      
   <dt><a href="index.html#TXN.Warning">TXN.Warning() (TXN method)</a>
   </dt>
 
@@ -634,40 +870,37 @@
           </div>
         </div>
       </div>
-      <div class="sphinxsidebar">
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
         <div class="sphinxsidebarwrapper">
 
    
 
-<div id="searchbox" style="display: none">
+<div id="searchbox" style="display: none" role="search">
   <h3>Quick search</h3>
     <form class="search" action="search.html" method="get">
-      <input type="text" name="q" />
-      <input type="submit" value="Go" />
+      <div><input type="text" name="q" /></div>
+      <div><input type="submit" value="Go" /></div>
       <input type="hidden" name="check_keywords" value="yes" />
       <input type="hidden" name="area" value="default" />
     </form>
-    <p class="searchtip" style="font-size: 90%">
-    Enter search terms or a module, class or function name.
-    </p>
 </div>
 <script type="text/javascript">$('#searchbox').show(0);</script>
         </div>
       </div>
       <div class="clearer"></div>
     </div>
-    <div class="related">
+    <div class="related" role="navigation" aria-label="related navigation">
       <h3>Navigation</h3>
       <ul>
         <li class="right" style="margin-right: 10px">
           <a href="#" title="General Index"
              >index</a></li>
-        <li><a href="index.html">haproxy-lua 1.0 documentation</a> &raquo;</li> 
+        <li class="nav-item nav-item-0"><a href="index.html">haproxy-lua 1.0 documentation</a> &raquo;</li> 
       </ul>
     </div>
-    <div class="footer">
+    <div class="footer" role="contentinfo">
         &copy; Copyright 2015, Thierry FOURNIER.
-      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.2.3.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.4.5.
     </div>
   </body>
 </html>
